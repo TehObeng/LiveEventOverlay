@@ -247,6 +247,14 @@ export default function AdminPage() {
     return `${shareBaseUrl}/chat?eventId=${selectedEventId}`;
   }, [selectedEventId, shareBaseUrl]);
 
+  const overlayUrl = useMemo(() => {
+    if (!selectedEventId || !shareBaseUrl) {
+      return '';
+    }
+
+    return `${shareBaseUrl}/overlay?eventId=${selectedEventId}&obs=1`;
+  }, [selectedEventId, shareBaseUrl]);
+
   useEffect(() => {
     if (!shareUrl) {
       setQrDataUrl('');
@@ -494,6 +502,20 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
+  const copyToClipboard = useCallback(async (value: string, successMessage: string) => {
+    if (!value) {
+      showToast('error', 'Link belum tersedia');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast('success', successMessage);
+    } catch {
+      showToast('error', 'Gagal menyalin link');
+    }
+  }, [showToast]);
+
   const handleLogout = async () => {
     try {
       const supabase = getBrowserSupabaseClient();
@@ -613,6 +635,9 @@ export default function AdminPage() {
           qrDataUrl={qrDataUrl}
           shareUrl={shareUrl}
           shareWarning={shareWarning}
+          overlayUrl={overlayUrl}
+          onCopyChatLink={() => { void copyToClipboard(shareUrl, 'Chat link disalin'); }}
+          onCopyOverlayLink={() => { void copyToClipboard(overlayUrl, 'Overlay link disalin'); }}
           previewKey={previewKey}
           overlayConfig={overlayConfig}
           setOverlayConfig={setOverlayConfig}
