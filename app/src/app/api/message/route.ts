@@ -1,63 +1,91 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase';
-import { basicFilterIntelligence } from '@/lib/filter';
 import crypto from 'crypto';
+import { NextRequest, NextResponse } from 'next/server';
+import { isUuid } from '@/lib/admin-auth';
+import { basicFilterIntelligence } from '@/lib/filter';
+import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+import { EventData } from '@/lib/types';
 
-// Simple in-memory rate limiter (per IP)
 const rateLimitMap = new Map<string, number>();
+
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+if (!cleanupInterval) {
+  cleanupInterval = setInterval(() => {
+    const cutoff = Date.now() - 120000;
+    for (const [key, time] of rateLimitMap.entries()) {
+      if (time < cutoff) {
+        rateLimitMap.delete(key);
+      }
+    }
+  }, 60000);
+}
+
+function sanitizeSenderName(name: string | null | undefined) {
+  if (!name || typeof name !== 'string') return null;
+
+  const cleaned = name
+    .replace(/<[^>]*>/g, '')
+    .replace(/[<>"'&]/g, '')
+    .trim()
+    .slice(0, 50);
+
+  return cleaned || null;
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { eventId, text, senderName } = body;
+    const eventId = typeof body.eventId === 'string' ? body.eventId : '';
+    const text = typeof body.text === 'string' ? body.text : '';
+    const senderName = sanitizeSenderName(body.senderName);
 
     if (!eventId || !text) {
-      return NextResponse.json(
-        { error: 'eventId dan text wajib diisi' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'eventId dan text wajib diisi' }, { status: 400 });
     }
 
-    const supabase = createServerSupabaseClient();
+    if (!isUuid(eventId)) {
+      return NextResponse.json({ error: 'Format eventId tidak valid' }, { status: 400 });
+    }
 
-    // Fetch event to get config
+    if (text.length > 500) {
+      return NextResponse.json({ error: 'Pesan terlalu panjang' }, { status: 400 });
+    }
+
+    const supabase = createServiceRoleSupabaseClient();
     const { data: event, error: eventError } = await supabase
       .from('events')
-      .select('*')
+      .select('id, max_chars, cooldown_seconds, auto_approve, is_active')
       .eq('id', eventId)
-      .eq('is_active', true)
       .single();
 
-    if (eventError || !event) {
+    if (eventError || !event || !(event as Pick<EventData, 'is_active'>).is_active) {
       return NextResponse.json(
         { error: 'Event tidak ditemukan atau sudah berakhir' },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
-    // Server-side filter
     const filterResult = basicFilterIntelligence(text, event.max_chars || 100);
-    if (!filterResult.ok) {
+    if (filterResult.riskLevel === 'blocked') {
       const reasons: Record<string, string> = {
         blacklist: 'Pesan mengandung kata yang tidak diizinkan',
         link: 'Link tidak diizinkan',
         spam: 'Pesan terdeteksi sebagai spam',
         length: `Panjang pesan harus 2-${event.max_chars || 100} karakter`,
       };
+
       return NextResponse.json(
         { error: reasons[filterResult.reason || ''] || 'Pesan tidak valid' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // IP hash for rate limiting
     const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded?.split(',')[0]?.trim() || 
-               request.headers.get('x-real-ip') || 
-               'unknown';
+    const ip =
+      forwarded?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'unknown';
     const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
 
-    // Rate limiting
     const cooldownMs = (event.cooldown_seconds || 10) * 1000;
     const lastSent = rateLimitMap.get(ipHash) || 0;
     const timeSince = Date.now() - lastSent;
@@ -66,12 +94,11 @@ export async function POST(request: NextRequest) {
       const waitSeconds = Math.ceil((cooldownMs - timeSince) / 1000);
       return NextResponse.json(
         { error: `Terlalu cepat. Tunggu ${waitSeconds} detik lagi.` },
-        { status: 429 }
+        { status: 429 },
       );
     }
 
-    // Check if IP is banned for this event
-    const { data: bannedMsg } = await supabase
+    const { data: bannedMessages, error: bannedError } = await supabase
       .from('messages')
       .select('id')
       .eq('event_id', eventId)
@@ -79,49 +106,51 @@ export async function POST(request: NextRequest) {
       .eq('is_banned', true)
       .limit(1);
 
-    if (bannedMsg && bannedMsg.length > 0) {
-      return NextResponse.json(
-        { error: 'Akun anda telah di-ban dari event ini' },
-        { status: 403 }
-      );
+    if (bannedError) {
+      console.error('Ban check error:', bannedError);
+      return NextResponse.json({ error: 'Gagal memverifikasi status akun' }, { status: 500 });
     }
 
-    // Insert message
-    const { error: insertError } = await supabase
-      .from('messages')
-      .insert({
-        event_id: eventId,
-        text: filterResult.cleanedText,
-        sender_name: senderName || null,
-        status: 'pending',
-        ip_hash: ipHash,
-      });
+    if (bannedMessages && bannedMessages.length > 0) {
+      return NextResponse.json({ error: 'Akun anda telah di-ban dari event ini' }, { status: 403 });
+    }
+
+    const autoApprove = event.auto_approve !== false;
+    const messageStatus = autoApprove && filterResult.riskLevel === 'safe' ? 'approved' : 'pending';
+    const now = new Date().toISOString();
+
+    const { error: insertError } = await supabase.from('messages').insert({
+      event_id: eventId,
+      text: filterResult.cleanedText ?? text.trim(),
+      sender_name: senderName,
+      status: messageStatus,
+      risk_level: filterResult.riskLevel,
+      ip_hash: ipHash,
+      ...(messageStatus === 'approved'
+        ? {
+            approved_at: now,
+            approved_by: 'auto',
+          }
+        : {}),
+    });
 
     if (insertError) {
       console.error('Insert error:', insertError);
-      return NextResponse.json(
-        { error: 'Gagal menyimpan pesan' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Gagal menyimpan pesan' }, { status: 500 });
     }
 
-    // Update rate limit
     rateLimitMap.set(ipHash, Date.now());
 
-    // Cleanup old entries (prevent memory leak)
-    if (rateLimitMap.size > 10000) {
-      const cutoff = Date.now() - 60000;
-      for (const [key, time] of rateLimitMap.entries()) {
-        if (time < cutoff) rateLimitMap.delete(key);
-      }
-    }
-
-    return NextResponse.json({ success: true, message: 'Pesan terkirim' });
+    return NextResponse.json({
+      success: true,
+      message:
+        messageStatus === 'approved'
+          ? 'Pesan terkirim dan langsung ditampilkan!'
+          : 'Pesan terkirim! Menunggu persetujuan admin.',
+      autoApproved: messageStatus === 'approved',
+    });
   } catch (error) {
     console.error('Message API error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

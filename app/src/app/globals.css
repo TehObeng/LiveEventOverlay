@@ -912,22 +912,43 @@ a:hover {
 /* ============================================
    Page-Specific: Overlay
    ============================================ */
+.overlay-container,
 .overlay-page {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  background: transparent;
-  pointer-events: none;
+  position: fixed !important;
+  inset: 0 !important;
+  overflow: hidden !important;
+  background: transparent !important;
+  pointer-events: none !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
 }
 
-.overlay-message {
-  position: absolute;
-  white-space: nowrap;
-  font-weight: 700;
-  pointer-events: none;
-  will-change: transform;
-  text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-  -webkit-text-stroke-width: 1px;
+.overlay-message,
+.danmu-message {
+  position: absolute !important;
+  white-space: nowrap !important;
+  font-weight: 700 !important;
+  pointer-events: none !important;
+  will-change: transform !important;
+  backface-visibility: hidden !important;
+  -webkit-font-smoothing: antialiased !important;
+}
+
+/* ============================================
+   OBS Browser Source Compatibility
+   Force transparent background on html/body only.
+   The .overlay-container handles its own bg.
+   ============================================ */
+html.overlay-mode,
+html.overlay-mode body {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* Allow the overlay container to paint its own background */
+html.overlay-mode .overlay-container {
+  background: var(--overlay-bg, transparent) !important;
 }
 
 /* ============================================
@@ -1059,4 +1080,153 @@ a:hover {
   font-size: 0.875rem;
   resize: vertical;
   outline: none;
+}
+
+/* ============================================
+   TikTok Live Feed Styles
+   ============================================ */
+.tiktok-feed {
+  z-index: 9998 !important;
+}
+
+.tiktok-message {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 20px;
+  padding: 6px 14px;
+  max-width: 100%;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.tiktok-name {
+  font-weight: 700;
+  color: #a29bfe;
+  flex-shrink: 0;
+}
+
+.tiktok-text {
+  color: #fff;
+}
+
+/* ============================================
+   Direction / Type Selector Grid
+   ============================================ */
+.direction-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.direction-btn {
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--transition-fast);
+  font-family: var(--font-primary);
+}
+
+.direction-btn:hover {
+  border-color: var(--border-active);
+  color: var(--text-primary);
+}
+
+.direction-btn.active {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.type-btn {
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--transition-fast);
+  font-family: var(--font-primary);
+  font-weight: 600;
+}
+
+.type-btn:hover {
+  border-color: var(--border-active);
+  color: var(--text-primary);
+}
+
+.type-btn.active {
+  background: var(--gradient-primary);
+  color: white;
+  border-color: transparent;
+  box-shadow: var(--shadow-glow);
+}
+
+/* ============================================
+   Confirm Dialog
+   ============================================ */
+.confirm-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+/* ============================================
+   Admin Panel Sections
+   ============================================ */
+.config-section {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.config-section-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.color-row input[type="color"] {
+  width: 36px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-row span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: monospace;
 }

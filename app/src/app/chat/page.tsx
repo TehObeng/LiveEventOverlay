@@ -1,60 +1,29 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
-import { createBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
 import { basicFilterIntelligence } from '@/lib/filter';
-import { EventData } from '@/lib/types';
+import { fetchPublicEvent } from '@/lib/public-api';
+import { requestJson } from '@/lib/request';
+import { PublicEventData } from '@/lib/types';
 
 function ChatForm() {
   const searchParams = useSearchParams();
   const eventId = searchParams.get('eventId');
 
-  const [event, setEvent] = useState<EventData | null>(null);
+  const [event, setEvent] = useState<PublicEventData | null>(null);
   const [message, setMessage] = useState('');
   const [senderName, setSenderName] = useState('');
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [toast, setToast] = useState<{ type: string; text: string } | null>(null);
   const [eventLoading, setEventLoading] = useState(true);
+  const [eventError, setEventError] = useState('');
   const cooldownRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const maxChars = event?.max_chars || 100;
   const cooldownSeconds = event?.cooldown_seconds || 10;
-
-  // Fetch event data
-  useEffect(() => {
-    if (!eventId) {
-      setEventLoading(false);
-      return;
-    }
-
-    const fetchEvent = async () => {
-      try {
-        const supabase = createBrowserClient();
-        const { data, error } = await supabase
-          .from('events')
-          .select('*')
-          .eq('id', eventId)
-          .eq('is_active', true)
-          .single();
-
-        if (error || !data) {
-          showToast('error', 'Event tidak ditemukan atau sudah berakhir');
-        } else {
-          setEvent(data as EventData);
-        }
-      } catch {
-        showToast('error', 'Gagal memuat event');
-      } finally {
-        setEventLoading(false);
-      }
-    };
-
-    fetchEvent();
-  }, [eventId]);
 
   const showToast = useCallback((type: string, text: string) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -62,26 +31,71 @@ function ChatForm() {
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
   }, []);
 
+  useEffect(() => {
+    if (!eventId) {
+      setEventLoading(false);
+      setEventError('Event ID tidak ditemukan. Scan QR code untuk mengirim pesan.');
+      return;
+    }
+
+    let active = true;
+    setEventLoading(true);
+    setEventError('');
+
+    const loadEvent = async () => {
+      try {
+        const nextEvent = await fetchPublicEvent(eventId);
+        if (!active) return;
+        setEvent(nextEvent);
+      } catch (error) {
+        if (!active) return;
+        const messageText = error instanceof Error ? error.message : 'Gagal memuat event';
+        setEvent(null);
+        setEventError(messageText);
+        showToast('error', messageText);
+      } finally {
+        if (active) {
+          setEventLoading(false);
+        }
+      }
+    };
+
+    void loadEvent();
+
+    return () => {
+      active = false;
+    };
+  }, [eventId, showToast]);
+
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, []);
+
   const startCooldown = useCallback(() => {
     setCooldown(cooldownSeconds);
     if (cooldownRef.current) clearInterval(cooldownRef.current);
 
     cooldownRef.current = setInterval(() => {
-      setCooldown(prev => {
-        if (prev <= 1) {
+      setCooldown((previous) => {
+        if (previous <= 1) {
           clearInterval(cooldownRef.current);
           return 0;
         }
-        return prev - 1;
+
+        return previous - 1;
       });
     }, 1000);
   }, [cooldownSeconds]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!message.trim() || loading || cooldown > 0 || !eventId) return;
+  const handleSubmit = async (submitEvent: React.FormEvent) => {
+    submitEvent.preventDefault();
+    if (!message.trim() || loading || cooldown > 0 || !eventId) {
+      return;
+    }
 
-    // Client-side filter
     const filterResult = basicFilterIntelligence(message, maxChars);
     if (!filterResult.ok) {
       const reasons: Record<string, string> = {
@@ -96,9 +110,8 @@ function ChatForm() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/message', {
+      const data = await requestJson<{ message?: string; autoApproved?: boolean }>('/api/message', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           eventId,
           text: filterResult.cleanedText,
@@ -106,24 +119,19 @@ function ChatForm() {
         }),
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        showToast('success', '✅ Pesan terkirim! Menunggu persetujuan admin.');
-        setMessage('');
-        startCooldown();
-      } else {
-        showToast('error', data.error || 'Gagal mengirim pesan');
-      }
-    } catch {
-      showToast('error', 'Koneksi bermasalah. Coba lagi.');
+      showToast('success', data.message || 'Pesan terkirim!');
+      setMessage('');
+      startCooldown();
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Gagal mengirim pesan');
     } finally {
       setLoading(false);
     }
   };
 
   const charCount = message.length;
-  const charClass = charCount > maxChars ? 'danger' : charCount > maxChars * 0.8 ? 'warning' : '';
+  const charClass =
+    charCount > maxChars ? 'danger' : charCount > maxChars * 0.8 ? 'warning' : '';
 
   if (!eventId) {
     return (
@@ -151,6 +159,19 @@ function ChatForm() {
     );
   }
 
+  if (!event) {
+    return (
+      <div className="chat-page">
+        <div className="chat-container">
+          <div className="empty-state">
+            <div className="empty-state-icon">🎟️</div>
+            <p>{eventError || 'Event tidak ditemukan atau sudah berakhir.'}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="chat-page">
       {toast && (
@@ -161,32 +182,30 @@ function ChatForm() {
 
       <div className="chat-container">
         <div className="chat-header">
-          <h1>{event?.name || 'Live Chat'}</h1>
+          <h1>{event.name || 'Live Chat'}</h1>
           <p>Kirim pesan ke layar utama 🎬</p>
         </div>
 
         <form onSubmit={handleSubmit} className="chat-form-card">
-          {/* Optional Sender Name */}
           <div style={{ marginBottom: 12 }}>
             <input
               type="text"
               className="input"
               placeholder="Nama kamu (opsional)"
               value={senderName}
-              onChange={e => setSenderName(e.target.value)}
+              onChange={(e) => setSenderName(e.target.value)}
               maxLength={30}
               style={{ fontSize: '0.875rem', padding: '10px 14px' }}
               id="sender-name-input"
             />
           </div>
 
-          {/* Message Input */}
           <div className="chat-input-wrapper">
             <textarea
               className="chat-input"
               placeholder="Ketik pesanmu di sini..."
               value={message}
-              onChange={e => setMessage(e.target.value)}
+              onChange={(e) => setMessage(e.target.value)}
               maxLength={maxChars + 20}
               rows={2}
               id="message-input"
@@ -196,7 +215,6 @@ function ChatForm() {
             </span>
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
             className="btn btn-primary chat-submit"
@@ -215,7 +233,6 @@ function ChatForm() {
             )}
           </button>
 
-          {/* Cooldown Bar */}
           {cooldown > 0 && (
             <div>
               <div className="cooldown-bar">
@@ -241,16 +258,18 @@ function ChatForm() {
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={
-      <div className="chat-page">
-        <div className="chat-container">
-          <div className="chat-form-card">
-            <div className="loading-shimmer" style={{ marginBottom: 12 }} />
-            <div className="loading-shimmer" style={{ height: 40 }} />
+    <Suspense
+      fallback={
+        <div className="chat-page">
+          <div className="chat-container">
+            <div className="chat-form-card">
+              <div className="loading-shimmer" style={{ marginBottom: 12 }} />
+              <div className="loading-shimmer" style={{ height: 40 }} />
+            </div>
           </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <ChatForm />
     </Suspense>
   );

@@ -1,289 +1,533 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
-import { EventData, Message, OverlayConfig, DEFAULT_OVERLAY_CONFIG } from '@/lib/types';
 import QRCode from 'qrcode';
+import {
+  approveAdminMessage,
+  banEventSender,
+  clearAdminOverlay,
+  createAdminEvent,
+  deleteAdminEvent,
+  deleteAdminMessage,
+  fetchAdminEvents,
+  fetchAdminMessages,
+  fetchAdminSession,
+  rejectAdminMessage,
+  runBulkMessageAction,
+  sendAdminTestMessage,
+  updateAdminEvent,
+  updateAdminMessage,
+} from '@/lib/admin-api';
+import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/datetime';
+import { normalizeOverlayConfig } from '@/lib/public';
+import { getBrowserSupabaseClient, getSupabaseConfigError, isSupabaseConfigured } from '@/lib/supabase';
+import { AdminSessionData, DEFAULT_OVERLAY_CONFIG, EventData, Message, OverlayConfig } from '@/lib/types';
+import { isLocalhostUrl, resolveAppBaseUrl } from '@/lib/url';
+import { AdminSidebar } from '@/components/admin/AdminSidebar';
+import { EventModals } from '@/components/admin/EventModals';
+import { MessagePanel } from '@/components/admin/MessagePanel';
+
+function getErrorMessage(error: unknown, fallback = 'Terjadi kesalahan') {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function AdminPage() {
   const router = useRouter();
-  const supabase = createBrowserClient();
 
-  // Auth state
-  const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [user, setUser] = useState<AdminSessionData | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [configError, setConfigError] = useState(false);
 
-  // Event state
   const [events, setEvents] = useState<EventData[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState('');
   const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [showEditEvent, setShowEditEvent] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
+  const [editEventName, setEditEventName] = useState('');
+  const [editEventDate, setEditEventDate] = useState('');
 
-  // Messages state
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
 
-  // Overlay config
   const [overlayConfig, setOverlayConfig] = useState<OverlayConfig>(DEFAULT_OVERLAY_CONFIG);
+  const [autoApprove, setAutoApprove] = useState(true);
 
-  // QR
-  const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [previewKey, setPreviewKey] = useState(0);
+  const [shareBaseUrl, setShareBaseUrl] = useState('');
+  const [shareWarning, setShareWarning] = useState('');
 
-  // Toast
   const [toast, setToast] = useState<{ type: string; text: string } | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const showToast = useCallback((type: string, text: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast({ type, text });
-    setTimeout(() => setToast(null), 3000);
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // ============================================
-  // Auth Check
-  // ============================================
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/admin/login');
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, []);
+
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true);
+    try {
+      const nextEvents = await fetchAdminEvents();
+      setEvents(nextEvents);
+      setSelectedEventId((previous) => {
+        if (previous && nextEvents.some((event) => event.id === previous)) {
+          return previous;
+        }
+
+        return nextEvents[0]?.id || '';
+      });
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal memuat event'));
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [showToast]);
+
+  const loadMessages = useCallback(async (eventId: string) => {
+    if (!eventId) {
+      setMessages([]);
+      return;
+    }
+
+    setMessagesLoading(true);
+    try {
+      const nextMessages = await fetchAdminMessages(eventId);
+      setMessages(nextMessages);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal memuat pesan'));
+    } finally {
+      setMessagesLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setConfigError(true);
+      setAuthLoading(false);
+      return;
+    }
+
+    let active = true;
+    const supabase = getBrowserSupabaseClient();
+
+    const bootstrap = async () => {
+      try {
+        const { data: authUser, error } = await supabase.auth.getUser();
+        if (!active) return;
+
+        if (error || !authUser.user) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const session = await fetchAdminSession();
+        if (!active) return;
+
+        setUser(session.user);
+      } catch (error) {
+        console.error('Admin bootstrap error:', error);
+        if (active) {
+          showToast('error', getErrorMessage(error, 'Gagal memverifikasi sesi admin'));
+          router.replace('/admin/login');
+        }
+      } finally {
+        if (active) {
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    void bootstrap();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+
+      if (event === 'SIGNED_OUT' || !session) {
+        router.replace('/admin/login');
         return;
       }
-      setUser({ email: session.user.email });
-      setAuthLoading(false);
-    };
-    checkAuth();
-  }, [router, supabase]);
 
-  // ============================================
-  // Fetch Events
-  // ============================================
-  useEffect(() => {
-    if (authLoading) return;
-
-    const fetchEvents = async () => {
-      const { data } = await supabase
-        .from('events')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (data && data.length > 0) {
-        setEvents(data as EventData[]);
-        if (!selectedEventId) {
-          setSelectedEventId(data[0].id);
-        }
+      if (session.user) {
+        setUser({
+          userId: session.user.id,
+          email: session.user.email ?? null,
+        });
       }
-    };
-
-    fetchEvents();
-  }, [authLoading, supabase, selectedEventId]);
-
-  // ============================================
-  // Fetch Messages for Selected Event
-  // ============================================
-  useEffect(() => {
-    if (!selectedEventId) return;
-
-    const fetchMessages = async () => {
-      const { data } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('event_id', selectedEventId)
-        .order('created_at', { ascending: false });
-
-      if (data) {
-        setMessages(data as Message[]);
-      }
-    };
-
-    fetchMessages();
-
-    // Load overlay config from selected event
-    const selectedEvent = events.find(e => e.id === selectedEventId);
-    if (selectedEvent?.overlay_config) {
-      setOverlayConfig({ ...DEFAULT_OVERLAY_CONFIG, ...selectedEvent.overlay_config });
-    }
-  }, [selectedEventId, events, supabase]);
-
-  // ============================================
-  // Realtime Subscription
-  // ============================================
-  useEffect(() => {
-    if (!selectedEventId) return;
-
-    const channel = supabase
-      .channel(`messages-${selectedEventId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `event_id=eq.${selectedEventId}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setMessages(prev => [payload.new as Message, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setMessages(prev =>
-              prev.map(m => m.id === (payload.new as Message).id ? payload.new as Message : m)
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setMessages(prev => prev.filter(m => m.id !== (payload.old as Message).id));
-          }
-        }
-      )
-      .subscribe();
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
+      subscription.unsubscribe();
     };
-  }, [selectedEventId, supabase]);
+  }, [router, showToast]);
 
-  // ============================================
-  // Generate QR Code
-  // ============================================
   useEffect(() => {
-    if (!selectedEventId) return;
+    if (authLoading || !user) {
+      return;
+    }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const chatUrl = `${appUrl}/chat?eventId=${selectedEventId}`;
+    void loadEvents();
+    const intervalId = setInterval(() => {
+      void loadEvents();
+    }, 15000);
 
-    QRCode.toDataURL(chatUrl, {
+    return () => clearInterval(intervalId);
+  }, [authLoading, user, loadEvents]);
+
+  useEffect(() => {
+    if (authLoading || !user || !selectedEventId) {
+      setMessages([]);
+      return;
+    }
+
+    void loadMessages(selectedEventId);
+    const intervalId = setInterval(() => {
+      void loadMessages(selectedEventId);
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [authLoading, user, selectedEventId, loadMessages]);
+
+  useEffect(() => {
+    const selectedEvent = events.find((event) => event.id === selectedEventId);
+    if (!selectedEvent) {
+      setOverlayConfig(DEFAULT_OVERLAY_CONFIG);
+      setAutoApprove(true);
+      return;
+    }
+
+    setOverlayConfig(normalizeOverlayConfig(selectedEvent.overlay_config));
+    setAutoApprove(selectedEvent.auto_approve !== false);
+  }, [events, selectedEventId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+    const runtimeOrigin = window.location.origin;
+    const nextBaseUrl = resolveAppBaseUrl(configuredAppUrl, runtimeOrigin);
+
+    setShareBaseUrl(nextBaseUrl);
+
+    if (!configuredAppUrl) {
+      setShareWarning('NEXT_PUBLIC_APP_URL belum diatur. QR akan memakai origin halaman ini.');
+      return;
+    }
+
+    if (isLocalhostUrl(configuredAppUrl)) {
+      setShareWarning('NEXT_PUBLIC_APP_URL masih menunjuk ke localhost. QR akan memakai origin halaman ini agar aman dibagikan.');
+      return;
+    }
+
+    setShareWarning('');
+  }, []);
+
+  const shareUrl = useMemo(() => {
+    if (!selectedEventId || !shareBaseUrl) {
+      return '';
+    }
+
+    return `${shareBaseUrl}/chat?eventId=${selectedEventId}`;
+  }, [selectedEventId, shareBaseUrl]);
+
+  useEffect(() => {
+    if (!shareUrl) {
+      setQrDataUrl('');
+      return;
+    }
+
+    QRCode.toDataURL(shareUrl, {
       width: 256,
       margin: 2,
       color: { dark: '#000000', light: '#ffffff' },
-    }).then(setQrDataUrl).catch(console.error);
-  }, [selectedEventId]);
+    })
+      .then(setQrDataUrl)
+      .catch((error) => {
+        console.error('QR generation error:', error);
+        showToast('error', 'Gagal membuat QR code');
+      });
+  }, [shareUrl, showToast]);
 
-  // ============================================
-  // Actions
-  // ============================================
   const handleApprove = async (id: string) => {
-    const { error } = await supabase
-      .from('messages')
-      .update({
-        status: 'approved',
-        approved_at: new Date().toISOString(),
-        approved_by: user?.email || 'admin',
-      })
-      .eq('id', id);
-
-    if (!error) showToast('success', 'Pesan disetujui ✅');
+    try {
+      await approveAdminMessage(id);
+      showToast('success', 'Pesan disetujui');
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menyetujui pesan'));
+    }
   };
 
   const handleReject = async (id: string) => {
-    const { error } = await supabase
-      .from('messages')
-      .update({ status: 'rejected' })
-      .eq('id', id);
-
-    if (!error) showToast('info', 'Pesan ditolak');
+    try {
+      await rejectAdminMessage(id);
+      showToast('info', 'Pesan ditolak');
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menolak pesan'));
+    }
   };
 
-  const handleEdit = async (id: string) => {
-    if (!editText.trim()) return;
-    const { error } = await supabase
-      .from('messages')
-      .update({ text: editText.trim() })
-      .eq('id', id);
+  const handleDeleteMessage = async (id: string) => {
+    try {
+      await deleteAdminMessage(id);
+      setMessages((previous) => previous.filter((message) => message.id !== id));
+      showToast('info', 'Pesan dihapus');
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menghapus pesan'));
+    }
+  };
 
-    if (!error) {
+  const handleSaveEdit = async (id: string) => {
+    if (!editText.trim()) {
+      showToast('error', 'Pesan tidak boleh kosong');
+      return;
+    }
+
+    try {
+      await updateAdminMessage(id, { text: editText.trim() });
       setEditingId(null);
       setEditText('');
-      showToast('success', 'Pesan diedit');
+      showToast('success', 'Pesan diperbarui');
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal memperbarui pesan'));
     }
   };
 
   const handleBan = async (ipHash: string) => {
-    const { error } = await supabase
-      .from('messages')
-      .update({ is_banned: true, status: 'rejected' })
-      .eq('ip_hash', ipHash)
-      .eq('event_id', selectedEventId);
+    try {
+      await banEventSender(selectedEventId, ipHash);
+      showToast('info', 'Pengirim berhasil di-ban');
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal mem-ban pengirim'));
+    }
+  };
 
-    if (!error) showToast('info', 'Pengirim di-ban');
+  const handleSendTestMessage = async () => {
+    try {
+      const response = await sendAdminTestMessage(selectedEventId);
+      showToast('success', response.message || 'Test message terkirim');
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal mengirim test message'));
+    }
   };
 
   const handleClearScreen = async () => {
-    // Broadcast clear_screen event via Supabase Realtime channel
-    const channel = supabase.channel(`overlay-${selectedEventId}`);
-    await channel.subscribe();
-    await channel.send({
-      type: 'broadcast',
-      event: 'clear_screen',
-      payload: {},
-    });
-    supabase.removeChannel(channel);
-    showToast('info', 'Layar dibersihkan');
+    try {
+      const response = await clearAdminOverlay(selectedEventId);
+      showToast('info', response.message || 'Layar overlay dibersihkan');
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal membersihkan overlay'));
+    }
   };
 
-  const handleCreateEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newEventName.trim()) return;
+  const handleCreateEvent = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newEventName.trim()) {
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from('events')
-      .insert({
+    try {
+      const createdEvent = await createAdminEvent({
         name: newEventName.trim(),
-        date: newEventDate || new Date().toISOString(),
-        overlay_config: DEFAULT_OVERLAY_CONFIG,
-      })
-      .select()
-      .single();
+        date: fromDatetimeLocalValue(newEventDate),
+      });
 
-    if (!error && data) {
-      setEvents(prev => [data as EventData, ...prev]);
-      setSelectedEventId(data.id);
+      setEvents((previous) => [createdEvent, ...previous]);
+      setSelectedEventId(createdEvent.id);
       setShowCreateEvent(false);
       setNewEventName('');
       setNewEventDate('');
-      showToast('success', 'Event dibuat!');
+      showToast('success', 'Event dibuat');
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal membuat event'));
+    }
+  };
+
+  const handleUpdateEvent = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editEventName.trim() || !selectedEventId) {
+      return;
+    }
+
+    try {
+      const updatedEvent = await updateAdminEvent(selectedEventId, {
+        name: editEventName.trim(),
+        date: fromDatetimeLocalValue(editEventDate),
+      });
+
+      setEvents((previous) => previous.map((current) => (current.id === selectedEventId ? updatedEvent : current)));
+      setShowEditEvent(false);
+      showToast('success', 'Event diperbarui');
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal memperbarui event'));
+    }
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!selectedEventId) {
+      return;
+    }
+
+    try {
+      await deleteAdminEvent(selectedEventId);
+      const remainingEvents = events.filter((event) => event.id !== selectedEventId);
+      setEvents(remainingEvents);
+      setSelectedEventId(remainingEvents[0]?.id || '');
+      setMessages([]);
+      setShowDeleteConfirm(false);
+      showToast('info', 'Event dihapus');
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menghapus event'));
     }
   };
 
   const handleSaveOverlayConfig = async () => {
-    const { error } = await supabase
-      .from('events')
-      .update({ overlay_config: overlayConfig })
-      .eq('id', selectedEventId);
+    if (!selectedEventId) {
+      return;
+    }
 
-    if (!error) showToast('success', 'Pengaturan tersimpan');
+    try {
+      const updatedEvent = await updateAdminEvent(selectedEventId, {
+        overlay_config: overlayConfig,
+        auto_approve: autoApprove,
+      });
+
+      setEvents((previous) => previous.map((event) => (event.id === selectedEventId ? updatedEvent : event)));
+      setPreviewKey((previous) => previous + 1);
+      showToast('success', 'Pengaturan tersimpan');
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menyimpan pengaturan'));
+    }
+  };
+
+  const handleBulkApprove = async () => {
+    const ids = messages.filter((message) => message.status === 'pending').map((message) => message.id);
+    if (ids.length === 0) return;
+
+    try {
+      const response = await runBulkMessageAction(selectedEventId, {
+        action: 'approve',
+        ids,
+      });
+      showToast('success', response.message || `${ids.length} pesan disetujui`);
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menyetujui semua pesan'));
+    }
+  };
+
+  const handleBulkReject = async () => {
+    const ids = messages.filter((message) => message.status === 'pending').map((message) => message.id);
+    if (ids.length === 0) return;
+
+    try {
+      const response = await runBulkMessageAction(selectedEventId, {
+        action: 'reject',
+        ids,
+      });
+      showToast('info', response.message || `${ids.length} pesan ditolak`);
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menolak semua pesan'));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = messages.filter((message) => message.status === activeTab).map((message) => message.id);
+    if (ids.length === 0) return;
+
+    try {
+      const response = await runBulkMessageAction(selectedEventId, {
+        action: 'delete',
+        ids,
+      });
+      showToast('info', response.message || `${ids.length} pesan dihapus`);
+      await loadMessages(selectedEventId);
+    } catch (error) {
+      showToast('error', getErrorMessage(error, 'Gagal menghapus pesan'));
+    }
   };
 
   const handleExportCSV = () => {
-    const eventMessages = messages.filter(m => m.event_id === selectedEventId);
+    const safeCsvValue = (value: string) => {
+      const escaped = value.replace(/"/g, '""');
+      if (/^[=+\-@]/.test(escaped)) {
+        return `'${escaped}`;
+      }
+      return escaped;
+    };
+
     const csv = [
       'ID,Text,Sender,Status,Created,Approved At',
-      ...eventMessages.map(m =>
-        `"${m.id}","${m.text.replace(/"/g, '""')}","${m.sender_name || '-'}","${m.status}","${m.created_at}","${m.approved_at || '-'}"`
+      ...messages.map((message) =>
+        `"${safeCsvValue(message.id)}","${safeCsvValue(message.text)}","${safeCsvValue(message.sender_name || '-')}","${safeCsvValue(message.status)}","${safeCsvValue(message.created_at)}","${safeCsvValue(message.approved_at || '-')}"`,
       ),
     ].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `messages-${selectedEventId}.csv`;
-    a.click();
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `messages-${selectedEventId}.csv`;
+    anchor.click();
     URL.revokeObjectURL(url);
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/admin/login');
+    try {
+      const supabase = getBrowserSupabaseClient();
+      await supabase.auth.signOut();
+    } finally {
+      router.replace('/admin/login');
+    }
   };
 
-  // ============================================
-  // Filtered messages by tab
-  // ============================================
-  const filteredMessages = messages.filter(m => m.status === activeTab);
-  const pendingCount = messages.filter(m => m.status === 'pending').length;
-  const approvedCount = messages.filter(m => m.status === 'approved').length;
-  const rejectedCount = messages.filter(m => m.status === 'rejected').length;
+  const openEditEvent = () => {
+    const selectedEvent = events.find((event) => event.id === selectedEventId);
+    if (!selectedEvent) {
+      return;
+    }
+
+    setEditEventName(selectedEvent.name);
+    setEditEventDate(toDatetimeLocalValue(selectedEvent.date));
+    setShowEditEvent(true);
+  };
+
+  const selectedEventName = events.find((event) => event.id === selectedEventId)?.name || 'event ini';
+
+  if (configError) {
+    return (
+      <div className="login-page">
+        <div className="login-card glass-card">
+          <h1>Konfigurasi Error</h1>
+          <p className="text-muted" style={{ lineHeight: 1.7 }}>
+            {getSupabaseConfigError()}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (
@@ -297,386 +541,107 @@ export default function AdminPage() {
 
   return (
     <div className="admin-page">
-      {toast && (
-        <div className={`toast toast-${toast.type}`} key={toast.text}>
-          {toast.text}
-        </div>
-      )}
+      {toast && <div className={`toast toast-${toast.type}`} key={toast.text}>{toast.text}</div>}
 
-      {/* Top Bar */}
       <div className="admin-topbar">
-        <h1>📊 Admin Panel</h1>
+        <h1>Admin Panel</h1>
         <div className="flex items-center gap-md">
           <div className="event-selector">
-            <select
-              value={selectedEventId}
-              onChange={e => setSelectedEventId(e.target.value)}
-              id="event-selector"
-            >
-              {events.map(ev => (
-                <option key={ev.id} value={ev.id}>{ev.name}</option>
+            <select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)} id="event-selector" disabled={events.length === 0}>
+              {events.map((event) => (
+                <option key={event.id} value={event.id}>{event.name}</option>
               ))}
             </select>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setShowCreateEvent(true)}
-              id="create-event-btn"
-            >
-              + Event Baru
-            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateEvent(true)} id="create-event-btn">+ Baru</button>
+            <button className="btn btn-ghost btn-sm" onClick={openEditEvent} title="Edit Event" disabled={!selectedEventId}>✏️</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(true)} style={{ color: 'var(--accent-danger)' }} title="Hapus Event" disabled={!selectedEventId}>🗑️</button>
           </div>
           <span className="text-muted text-sm">{user?.email}</span>
-          <button className="btn btn-ghost btn-sm" onClick={handleLogout} id="logout-btn">
-            Keluar
-          </button>
+          <button className="btn btn-ghost btn-sm" onClick={handleLogout} id="logout-btn">Keluar</button>
         </div>
       </div>
 
-      {/* Main Layout */}
       <div className="admin-layout">
-        {/* Left: Message Queue */}
-        <div className="admin-main">
-          {/* Stats */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-value">{pendingCount}</div>
-              <div className="stat-label">Menunggu</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{approvedCount}</div>
-              <div className="stat-label">Disetujui</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{rejectedCount}</div>
-              <div className="stat-label">Ditolak</div>
+        {eventsLoading && events.length === 0 ? (
+          <div className="admin-main">
+            <div className="empty-state">
+              <div className="empty-state-icon">⏳</div>
+              <p>Memuat data admin...</p>
             </div>
           </div>
-
-          {/* Tabs */}
-          <div className="tabs">
-            <button
-              className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
-              onClick={() => setActiveTab('pending')}
-            >
-              Menunggu ({pendingCount})
-            </button>
-            <button
-              className={`tab ${activeTab === 'approved' ? 'active' : ''}`}
-              onClick={() => setActiveTab('approved')}
-            >
-              Disetujui ({approvedCount})
-            </button>
-            <button
-              className={`tab ${activeTab === 'rejected' ? 'active' : ''}`}
-              onClick={() => setActiveTab('rejected')}
-            >
-              Ditolak ({rejectedCount})
-            </button>
-          </div>
-
-          {/* Message List */}
-          <div className="message-list">
-            {filteredMessages.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  {activeTab === 'pending' ? '📭' : activeTab === 'approved' ? '✅' : '❌'}
-                </div>
-                <p>Tidak ada pesan {activeTab === 'pending' ? 'menunggu' : activeTab === 'approved' ? 'disetujui' : 'ditolak'}</p>
-              </div>
-            ) : (
-              filteredMessages.map(msg => (
-                <div className="message-card" key={msg.id}>
-                  <div className="message-card-header">
-                    <div className="flex items-center gap-sm">
-                      <span className={`badge badge-${msg.status}`}>
-                        {msg.status === 'pending' ? '⏳ Menunggu' : msg.status === 'approved' ? '✅ Disetujui' : '❌ Ditolak'}
-                      </span>
-                      {msg.sender_name && (
-                        <span className="text-sm text-secondary">{msg.sender_name}</span>
-                      )}
-                    </div>
-                    <span className="message-meta">
-                      {new Date(msg.created_at).toLocaleTimeString('id-ID')}
-                    </span>
-                  </div>
-
-                  {editingId === msg.id ? (
-                    <div className="flex flex-col gap-sm">
-                      <textarea
-                        className="edit-textarea"
-                        value={editText}
-                        onChange={e => setEditText(e.target.value)}
-                      />
-                      <div className="flex gap-sm">
-                        <button className="btn btn-success btn-sm" onClick={() => handleEdit(msg.id)}>
-                          Simpan
-                        </button>
-                        <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>
-                          Batal
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="message-text">{msg.text}</div>
-                  )}
-
-                  <div className="message-actions">
-                    {msg.status === 'pending' && (
-                      <>
-                        <button
-                          className="btn btn-success btn-sm"
-                          onClick={() => handleApprove(msg.id)}
-                          id={`approve-${msg.id}`}
-                        >
-                          ✅ Setujui
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => handleReject(msg.id)}
-                          id={`reject-${msg.id}`}
-                        >
-                          ❌ Tolak
-                        </button>
-                      </>
-                    )}
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => {
-                        setEditingId(msg.id);
-                        setEditText(msg.text);
-                      }}
-                    >
-                      ✏️ Edit
-                    </button>
-                    {msg.ip_hash && (
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => handleBan(msg.ip_hash)}
-                        style={{ color: 'var(--accent-danger)' }}
-                      >
-                        🚫 Ban
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Bottom Actions */}
-          <div className="flex gap-sm">
-            <button className="btn btn-danger btn-sm" onClick={handleClearScreen} id="clear-screen-btn">
-              🗑️ Bersihkan Layar
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={handleExportCSV} id="export-csv-btn">
-              📥 Export CSV
-            </button>
-          </div>
-        </div>
-
-        {/* Right Sidebar */}
-        <div className="admin-sidebar">
-          {/* QR Code */}
-          <div className="glass-card">
-            <div className="panel-title">📱 QR Code</div>
-            <div className="qr-container">
-              {qrDataUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrDataUrl} alt="QR Code" width={200} height={200} />
-              )}
-              <canvas ref={qrCanvasRef} style={{ display: 'none' }} />
-              <a
-                href={qrDataUrl}
-                download={`qr-${selectedEventId}.png`}
-                className="btn btn-ghost btn-sm w-full"
-              >
-                📥 Download QR
-              </a>
-              <div className="text-xs text-muted text-center" style={{ wordBreak: 'break-all' }}>
-                {process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/chat?eventId={selectedEventId}
-              </div>
+        ) : events.length === 0 ? (
+          <div className="admin-main">
+            <div className="empty-state">
+              <div className="empty-state-icon">🎟️</div>
+              <p>Belum ada event. Buat event pertama untuk mulai menggunakan overlay.</p>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowCreateEvent(true)}>Buat Event</button>
             </div>
           </div>
+        ) : (
+          <MessagePanel
+            messages={messages}
+            activeTab={activeTab}
+            loading={messagesLoading}
+            editingId={editingId}
+            editText={editText}
+            onTabChange={setActiveTab}
+            onEditTextChange={setEditText}
+            onStartEdit={(message) => {
+              setEditingId(message.id);
+              setEditText(message.text);
+            }}
+            onCancelEdit={() => {
+              setEditingId(null);
+              setEditText('');
+            }}
+            onSaveEdit={handleSaveEdit}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onDelete={handleDeleteMessage}
+            onBan={handleBan}
+            onBulkApprove={handleBulkApprove}
+            onBulkReject={handleBulkReject}
+            onBulkDelete={handleBulkDelete}
+            onSendTestMessage={handleSendTestMessage}
+            onClearScreen={handleClearScreen}
+            onExportCsv={handleExportCSV}
+          />
+        )}
 
-          {/* Live Preview */}
-          <div className="glass-card">
-            <div className="panel-title">👁️ Live Preview</div>
-            <div className="preview-frame">
-              {selectedEventId && (
-                <iframe
-                  src={`/overlay?eventId=${selectedEventId}`}
-                  title="Overlay Preview"
-                  id="overlay-preview"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Overlay Styling */}
-          <div className="glass-card">
-            <div className="panel-title">🎨 Pengaturan Overlay</div>
-
-            <div className="style-control">
-              <label>Font Size: {overlayConfig.fontSize}px</label>
-              <input
-                type="range"
-                min="16"
-                max="96"
-                value={overlayConfig.fontSize}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, fontSize: Number(e.target.value) }))
-                }
-              />
-            </div>
-
-            <div className="style-control">
-              <label>Warna Teks</label>
-              <input
-                type="color"
-                value={overlayConfig.color}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, color: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="style-control">
-              <label>Warna Stroke</label>
-              <input
-                type="color"
-                value={overlayConfig.stroke}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, stroke: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="style-control">
-              <label>Kecepatan: {overlayConfig.speed}px/s</label>
-              <input
-                type="range"
-                min="30"
-                max="400"
-                value={overlayConfig.speed}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, speed: Number(e.target.value) }))
-                }
-              />
-            </div>
-
-            <div className="style-control">
-              <label>Jumlah Lane: {overlayConfig.laneCount}</label>
-              <input
-                type="range"
-                min="1"
-                max="8"
-                value={overlayConfig.laneCount}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, laneCount: Number(e.target.value) }))
-                }
-              />
-            </div>
-
-            <div className="style-control">
-              <label>Jarak Spawn: {overlayConfig.spawnInterval}ms</label>
-              <input
-                type="range"
-                min="500"
-                max="5000"
-                step="100"
-                value={overlayConfig.spawnInterval}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, spawnInterval: Number(e.target.value) }))
-                }
-              />
-            </div>
-
-            <div className="style-control">
-              <label>Font</label>
-              <select
-                value={overlayConfig.fontFamily}
-                onChange={e =>
-                  setOverlayConfig(prev => ({ ...prev, fontFamily: e.target.value }))
-                }
-              >
-                <option value="Arial">Arial</option>
-                <option value="Inter">Inter</option>
-                <option value="Outfit">Outfit</option>
-                <option value="Impact">Impact</option>
-                <option value="Comic Sans MS">Comic Sans MS</option>
-                <option value="Georgia">Georgia</option>
-              </select>
-            </div>
-
-            <div className="style-control">
-              <div className="flex items-center gap-sm">
-                <input
-                  type="checkbox"
-                  checked={overlayConfig.shadow}
-                  onChange={e =>
-                    setOverlayConfig(prev => ({ ...prev, shadow: e.target.checked }))
-                  }
-                  id="shadow-toggle"
-                />
-                <label style={{ margin: 0 }}>Shadow Teks</label>
-              </div>
-            </div>
-
-            <button
-              className="btn btn-primary btn-sm w-full"
-              onClick={handleSaveOverlayConfig}
-              id="save-config-btn"
-            >
-              💾 Simpan Pengaturan
-            </button>
-          </div>
-        </div>
+        <AdminSidebar
+          selectedEventId={selectedEventId}
+          qrDataUrl={qrDataUrl}
+          shareUrl={shareUrl}
+          shareWarning={shareWarning}
+          previewKey={previewKey}
+          overlayConfig={overlayConfig}
+          setOverlayConfig={setOverlayConfig}
+          autoApprove={autoApprove}
+          setAutoApprove={setAutoApprove}
+          onSaveConfig={handleSaveOverlayConfig}
+        />
       </div>
 
-      {/* Create Event Modal */}
-      {showCreateEvent && (
-        <div className="modal-overlay" onClick={() => setShowCreateEvent(false)}>
-          <div className="modal-content glass-card" onClick={e => e.stopPropagation()}>
-            <h2>🎉 Buat Event Baru</h2>
-            <form onSubmit={handleCreateEvent}>
-              <div style={{ marginBottom: 16 }}>
-                <label className="input-label">Nama Event</label>
-                <input
-                  type="text"
-                  className="input"
-                  placeholder="Konser Tahun Baru"
-                  value={newEventName}
-                  onChange={e => setNewEventName(e.target.value)}
-                  required
-                  id="new-event-name"
-                />
-              </div>
-              <div style={{ marginBottom: 24 }}>
-                <label className="input-label">Tanggal</label>
-                <input
-                  type="datetime-local"
-                  className="input"
-                  value={newEventDate}
-                  onChange={e => setNewEventDate(e.target.value)}
-                  id="new-event-date"
-                />
-              </div>
-              <div className="flex gap-sm">
-                <button type="submit" className="btn btn-primary w-full" id="create-event-submit">
-                  Buat Event
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setShowCreateEvent(false)}
-                >
-                  Batal
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <EventModals
+        showCreateEvent={showCreateEvent}
+        showEditEvent={showEditEvent}
+        showDeleteConfirm={showDeleteConfirm}
+        newEventName={newEventName}
+        newEventDate={newEventDate}
+        editEventName={editEventName}
+        editEventDate={editEventDate}
+        selectedEventName={selectedEventName}
+        onNewEventNameChange={setNewEventName}
+        onNewEventDateChange={setNewEventDate}
+        onEditEventNameChange={setEditEventName}
+        onEditEventDateChange={setEditEventDate}
+        onCloseCreate={() => setShowCreateEvent(false)}
+        onCloseEdit={() => setShowEditEvent(false)}
+        onCloseDelete={() => setShowDeleteConfirm(false)}
+        onCreateEvent={handleCreateEvent}
+        onUpdateEvent={handleUpdateEvent}
+        onDeleteEvent={handleDeleteEvent}
+      />
     </div>
   );
 }
