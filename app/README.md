@@ -23,6 +23,8 @@ Copy `.env.example` to `.env.local` and set:
 
 `NEXT_PUBLIC_APP_URL` should be the real public base URL used in QR codes. If it still points to `localhost`, the admin UI falls back to the current browser origin and warns you.
 
+After updating env values, restart the dev server so Next.js reloads environment variables (`Ctrl+C`, then `npm run dev`).
+
 ## Commands
 
 ```bash
