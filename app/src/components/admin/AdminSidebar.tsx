@@ -8,6 +8,9 @@ interface AdminSidebarProps {
   qrDataUrl: string;
   shareUrl: string;
   shareWarning: string;
+  overlayUrl: string;
+  onCopyChatLink: () => void;
+  onCopyOverlayLink: () => void;
   previewKey: number;
   overlayConfig: OverlayConfig;
   setOverlayConfig: Dispatch<SetStateAction<OverlayConfig>>;
@@ -33,6 +36,9 @@ export function AdminSidebar({
   qrDataUrl,
   shareUrl,
   shareWarning,
+  overlayUrl,
+  onCopyChatLink,
+  onCopyOverlayLink,
   previewKey,
   overlayConfig,
   setOverlayConfig,
@@ -55,8 +61,21 @@ export function AdminSidebar({
             </a>
           )}
           <div className="text-xs text-muted text-center" style={{ wordBreak: 'break-all' }}>
-            {shareUrl || 'URL belum tersedia'}
+            {shareUrl || 'URL chat belum tersedia'}
           </div>
+          <div className="flex gap-sm" style={{ width: '100%' }}>
+            <button className="btn btn-ghost btn-sm w-full" onClick={onCopyChatLink} disabled={!shareUrl}>
+              📋 Copy Chat Link
+            </button>
+            <button className="btn btn-ghost btn-sm w-full" onClick={onCopyOverlayLink} disabled={!overlayUrl}>
+              🎬 Copy Overlay Link
+            </button>
+          </div>
+          {overlayUrl && (
+            <div className="text-xs text-muted text-center" style={{ wordBreak: 'break-all' }}>
+              {overlayUrl}
+            </div>
+          )}
           {shareWarning && (
             <div
               className="text-xs"
