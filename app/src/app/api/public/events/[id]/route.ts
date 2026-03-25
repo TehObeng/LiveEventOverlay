@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { EventData } from '@/lib/types';
 import { isUuid, jsonError } from '@/lib/admin-auth';
 import { toPublicEvent } from '@/lib/public';
+import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 
 export async function GET(
@@ -18,17 +19,25 @@ export async function GET(
     const supabase = createServiceRoleSupabaseClient();
     const { data, error } = await supabase
       .from('events')
-      .select('id, name, max_chars, cooldown_seconds, overlay_config, is_active, overlay_cleared_at')
+      .select('*')
       .eq('id', id)
       .eq('is_active', true)
       .single();
 
-    if (error || !data) {
+    if (error) {
+      if (isMissingColumnError(error, 'events.overlay_cleared_at')) {
+        return jsonError(getSchemaSyncMessage('events.overlay_cleared_at'), 500);
+      }
+
+      return jsonError(error.message, 500);
+    }
+
+    if (!data) {
       return jsonError('Event tidak ditemukan atau sudah berakhir', 404);
     }
 
     return NextResponse.json({
-      event: toPublicEvent(data as Pick<EventData, 'id' | 'name' | 'max_chars' | 'cooldown_seconds' | 'overlay_config' | 'is_active' | 'overlay_cleared_at'>),
+      event: toPublicEvent(data as EventData),
     });
   } catch (error) {
     console.error('Public event GET error:', error);

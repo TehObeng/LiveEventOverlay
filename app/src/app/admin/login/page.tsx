@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getBrowserSupabaseClient, getSupabaseConfigError, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  getBrowserSupabaseClient,
+  getSupabaseConfigError,
+  isSupabaseConfigured,
+  isSupabaseSessionMissingError,
+} from '@/lib/supabase';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -29,6 +34,10 @@ export default function AdminLoginPage() {
         if (!active) return;
 
         if (authError) {
+          if (isSupabaseSessionMissingError(authError)) {
+            return;
+          }
+
           console.error('Session check failed:', authError);
           setError('Gagal memverifikasi sesi login.');
           return;

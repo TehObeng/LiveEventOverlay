@@ -3,8 +3,6 @@
    Global Design System
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap');
-
 /* ============================================
    CSS Custom Properties (Design Tokens)
    ============================================ */
@@ -46,8 +44,8 @@
   --border-active: rgba(108, 92, 231, 0.4);
 
   /* Typography */
-  --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display: 'Outfit', 'Inter', sans-serif;
+  --font-primary: var(--font-inter), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: var(--font-outfit), var(--font-inter), sans-serif;
 
   /* Spacing */
   --space-xs: 4px;
@@ -92,6 +90,7 @@ html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -110,6 +109,11 @@ a {
 
 a:hover {
   color: var(--accent-primary);
+}
+
+:focus-visible {
+  outline: 3px solid rgba(0, 206, 201, 0.7);
+  outline-offset: 3px;
 }
 
 /* ============================================
@@ -1025,9 +1029,18 @@ html.overlay-mode .overlay-container {
   .admin-sidebar {
     order: -1;
   }
+
+  .message-list {
+    max-height: none;
+  }
 }
 
 @media (max-width: 640px) {
+  .chat-page {
+    justify-content: flex-start;
+    padding-top: var(--space-2xl);
+  }
+
   .chat-form-card {
     padding: var(--space-lg);
   }
@@ -1037,11 +1050,30 @@ html.overlay-mode .overlay-container {
   }
   
   .admin-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-sm);
     padding: var(--space-md);
   }
   
   .admin-layout {
     padding: var(--space-md);
+  }
+
+  .event-selector {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .event-selector select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .message-actions,
+  .confirm-actions {
+    flex-wrap: wrap;
   }
 }
 
@@ -1229,4 +1261,19 @@ html.overlay-mode .overlay-container {
   font-size: 0.75rem;
   color: var(--text-muted);
   font-family: monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

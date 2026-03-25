@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { isUuid } from '@/lib/admin-auth';
+import { isE2EMockModeEnabled } from '@/lib/e2e-config';
 import { basicFilterIntelligence } from '@/lib/filter';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 import { EventData } from '@/lib/types';
@@ -56,21 +57,25 @@ export async function POST(request: NextRequest) {
       .select('id, max_chars, cooldown_seconds, auto_approve, is_active')
       .eq('id', eventId)
       .single();
+    const eventData = event as Pick<
+      EventData,
+      'id' | 'max_chars' | 'cooldown_seconds' | 'auto_approve' | 'is_active'
+    > | null;
 
-    if (eventError || !event || !(event as Pick<EventData, 'is_active'>).is_active) {
+    if (eventError || !eventData || !eventData.is_active) {
       return NextResponse.json(
         { error: 'Event tidak ditemukan atau sudah berakhir' },
         { status: 404 },
       );
     }
 
-    const filterResult = basicFilterIntelligence(text, event.max_chars || 100);
+    const filterResult = basicFilterIntelligence(text, eventData.max_chars || 100);
     if (filterResult.riskLevel === 'blocked') {
       const reasons: Record<string, string> = {
         blacklist: 'Pesan mengandung kata yang tidak diizinkan',
         link: 'Link tidak diizinkan',
         spam: 'Pesan terdeteksi sebagai spam',
-        length: `Panjang pesan harus 2-${event.max_chars || 100} karakter`,
+        length: `Panjang pesan harus 2-${eventData.max_chars || 100} karakter`,
       };
 
       return NextResponse.json(
@@ -86,16 +91,18 @@ export async function POST(request: NextRequest) {
       'unknown';
     const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
 
-    const cooldownMs = (event.cooldown_seconds || 10) * 1000;
-    const lastSent = rateLimitMap.get(ipHash) || 0;
-    const timeSince = Date.now() - lastSent;
+    if (!isE2EMockModeEnabled()) {
+      const cooldownMs = (eventData.cooldown_seconds || 10) * 1000;
+      const lastSent = rateLimitMap.get(ipHash) || 0;
+      const timeSince = Date.now() - lastSent;
 
-    if (timeSince < cooldownMs) {
-      const waitSeconds = Math.ceil((cooldownMs - timeSince) / 1000);
-      return NextResponse.json(
-        { error: `Terlalu cepat. Tunggu ${waitSeconds} detik lagi.` },
-        { status: 429 },
-      );
+      if (timeSince < cooldownMs) {
+        const waitSeconds = Math.ceil((cooldownMs - timeSince) / 1000);
+        return NextResponse.json(
+          { error: `Terlalu cepat. Tunggu ${waitSeconds} detik lagi.` },
+          { status: 429 },
+        );
+      }
     }
 
     const { data: bannedMessages, error: bannedError } = await supabase
@@ -111,11 +118,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Gagal memverifikasi status akun' }, { status: 500 });
     }
 
-    if (bannedMessages && bannedMessages.length > 0) {
+    const bannedRows = bannedMessages as { id: string }[] | null;
+    if (bannedRows && bannedRows.length > 0) {
       return NextResponse.json({ error: 'Akun anda telah di-ban dari event ini' }, { status: 403 });
     }
 
-    const autoApprove = event.auto_approve !== false;
+    const autoApprove = eventData.auto_approve !== false;
     const messageStatus = autoApprove && filterResult.riskLevel === 'safe' ? 'approved' : 'pending';
     const now = new Date().toISOString();
 

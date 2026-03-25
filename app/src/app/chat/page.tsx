@@ -188,6 +188,9 @@ function ChatForm() {
 
         <form onSubmit={handleSubmit} className="chat-form-card">
           <div style={{ marginBottom: 12 }}>
+            <label htmlFor="sender-name-input" className="input-label">
+              Nama kamu
+            </label>
             <input
               type="text"
               className="input"
@@ -201,6 +204,9 @@ function ChatForm() {
           </div>
 
           <div className="chat-input-wrapper">
+            <label htmlFor="message-input" className="input-label">
+              Pesan
+            </label>
             <textarea
               className="chat-input"
               placeholder="Ketik pesanmu di sini..."

@@ -48,3 +48,11 @@ Apply [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL editor.
 - moderation columns
 - `overlay_cleared_at` clear-screen support
 - tightened RLS that blocks public browser access to raw tables
+
+If you already have an older database and event pages say `Event tidak ditemukan atau sudah berakhir`, run [`supabase/schema-repair.sql`](./supabase/schema-repair.sql) and then `npm run check:schema`.
+
+## Documentation
+
+- Complete setup and operations guide: [`docs/COMPLETE_USER_GUIDE.md`](./docs/COMPLETE_USER_GUIDE.md)
+- Schema repair SQL: [`supabase/schema-repair.sql`](./supabase/schema-repair.sql)
+- Schema compatibility check: `npm run check:schema`

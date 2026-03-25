@@ -1,0 +1,8 @@
+
+> app@0.1.0 start
+> next start --hostname 127.0.0.1 --port 3015
+
+▲ Next.js 16.2.1
+- Local:         http://127.0.0.1:3015
+- Network:       http://127.0.0.1:3015
+✓ Ready in 107ms
