@@ -21,7 +21,12 @@ import {
 } from '@/lib/admin-api';
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/datetime';
 import { normalizeOverlayConfig } from '@/lib/public';
-import { getBrowserSupabaseClient, getSupabaseConfigError, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  getBrowserSupabaseClient,
+  getSupabaseConfigError,
+  isSupabaseConfigured,
+  isSupabaseSessionMissingError,
+} from '@/lib/supabase';
 import { AdminSessionData, DEFAULT_OVERLAY_CONFIG, EventData, Message, OverlayConfig } from '@/lib/types';
 import { isLocalhostUrl, resolveAppBaseUrl } from '@/lib/url';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
@@ -130,7 +135,11 @@ export default function AdminPage() {
         const { data: authUser, error } = await supabase.auth.getUser();
         if (!active) return;
 
-        if (error || !authUser.user) {
+        if (error && !isSupabaseSessionMissingError(error)) {
+          throw error;
+        }
+
+        if (!authUser.user) {
           router.replace('/admin/login');
           return;
         }
@@ -245,6 +254,14 @@ export default function AdminPage() {
     }
 
     return `${shareBaseUrl}/chat?eventId=${selectedEventId}`;
+  }, [selectedEventId, shareBaseUrl]);
+
+  const overlayUrl = useMemo(() => {
+    if (!selectedEventId || !shareBaseUrl) {
+      return '';
+    }
+
+    return `${shareBaseUrl}/overlay?eventId=${selectedEventId}&obs=1`;
   }, [selectedEventId, shareBaseUrl]);
 
   useEffect(() => {
@@ -494,6 +511,20 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
+  const copyToClipboard = useCallback(async (value: string, successMessage: string) => {
+    if (!value) {
+      showToast('error', 'Link belum tersedia');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast('success', successMessage);
+    } catch {
+      showToast('error', 'Gagal menyalin link');
+    }
+  }, [showToast]);
+
   const handleLogout = async () => {
     try {
       const supabase = getBrowserSupabaseClient();
@@ -547,7 +578,13 @@ export default function AdminPage() {
         <h1>Admin Panel</h1>
         <div className="flex items-center gap-md">
           <div className="event-selector">
-            <select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)} id="event-selector" disabled={events.length === 0}>
+            <select
+              value={selectedEventId}
+              onChange={(event) => setSelectedEventId(event.target.value)}
+              id="event-selector"
+              aria-label="Pilih event aktif"
+              disabled={events.length === 0}
+            >
               {events.map((event) => (
                 <option key={event.id} value={event.id}>{event.name}</option>
               ))}
@@ -613,6 +650,9 @@ export default function AdminPage() {
           qrDataUrl={qrDataUrl}
           shareUrl={shareUrl}
           shareWarning={shareWarning}
+          overlayUrl={overlayUrl}
+          onCopyChatLink={() => { void copyToClipboard(shareUrl, 'Chat link disalin'); }}
+          onCopyOverlayLink={() => { void copyToClipboard(overlayUrl, 'Overlay link disalin'); }}
           previewKey={previewKey}
           overlayConfig={overlayConfig}
           setOverlayConfig={setOverlayConfig}

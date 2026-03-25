@@ -3,6 +3,9 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
+import { isE2EMockModeEnabled } from './e2e-config';
+import { createMockServiceRoleClient } from './mock-backend';
+import { ServiceRoleSupabaseClientLike } from './supabase-like';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -48,7 +51,11 @@ export async function createRouteHandlerSupabaseClient() {
   });
 }
 
-export function createServiceRoleSupabaseClient() {
+export function createServiceRoleSupabaseClient(): ServiceRoleSupabaseClientLike {
+  if (isE2EMockModeEnabled()) {
+    return createMockServiceRoleClient();
+  }
+
   if (!hasServiceRoleConfig()) {
     throw new Error('SUPABASE_SERVICE_ROLE_NOT_CONFIGURED');
   }
@@ -58,5 +65,5 @@ export function createServiceRoleSupabaseClient() {
       autoRefreshToken: false,
       persistSession: false,
     },
-  });
+  }) as unknown as ServiceRoleSupabaseClientLike;
 }

@@ -14,7 +14,11 @@ export function normalizeOverlayConfig(config: Partial<OverlayConfig> | null | u
   };
 }
 
-export function toPublicEvent(event: Pick<EventData, 'id' | 'name' | 'max_chars' | 'cooldown_seconds' | 'overlay_config' | 'is_active' | 'overlay_cleared_at'>): PublicEventData {
+export function toPublicEvent(
+  event: Pick<EventData, 'id' | 'name' | 'max_chars' | 'cooldown_seconds' | 'overlay_config' | 'is_active'> & {
+    overlay_cleared_at?: string | null;
+  },
+): PublicEventData {
   return {
     id: event.id,
     name: event.name,
@@ -22,7 +26,7 @@ export function toPublicEvent(event: Pick<EventData, 'id' | 'name' | 'max_chars'
     cooldown_seconds: event.cooldown_seconds,
     overlay_config: normalizeOverlayConfig(event.overlay_config),
     is_active: event.is_active,
-    overlay_cleared_at: event.overlay_cleared_at,
+    overlay_cleared_at: event.overlay_cleared_at ?? null,
   };
 }
 

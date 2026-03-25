@@ -22,6 +22,20 @@ test('toPublicEvent merges overlay defaults and keeps only public fields', () =>
   assert.equal(result.overlay_cleared_at, '2026-03-25T09:00:00.000Z');
 });
 
+test('toPublicEvent defaults missing overlay clear state to null for older schemas', () => {
+  const result = toPublicEvent({
+    id: 'event-2',
+    name: 'Legacy Event',
+    max_chars: 100,
+    cooldown_seconds: 10,
+    overlay_config: null,
+    is_active: true,
+  } as never);
+
+  assert.equal(result.overlay_cleared_at, null);
+  assert.equal(result.overlay_config.fontFamily, 'Arial');
+});
+
 test('toPublicApprovedMessage omits moderation-only fields', () => {
   const result = toPublicApprovedMessage({
     id: 'message-1',

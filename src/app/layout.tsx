@@ -1,9 +1,26 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import type { Metadata } from 'next';
+import { Inter, Outfit } from 'next/font/google';
+import './globals.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+
+const outfit = Outfit({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-outfit',
+});
 
 export const metadata: Metadata = {
-  title: "Live Chat Overlay",
-  description: "Real-time chat overlay system for live events",
+  title: {
+    default: 'Live Chat Overlay',
+    template: '%s | Live Chat Overlay',
+  },
+  description: 'Real-time chat overlay system for live events.',
+  applicationName: 'Live Chat Overlay',
 };
 
 export default function RootLayout({
@@ -12,8 +29,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id">
-      <body style={{ background: 'transparent' }}>{children}</body>
+    <html lang="id" className={`${inter.variable} ${outfit.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

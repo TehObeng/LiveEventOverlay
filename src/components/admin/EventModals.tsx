@@ -49,7 +49,7 @@ export function EventModals({
             <h2>Buat Event Baru</h2>
             <form onSubmit={onCreateEvent}>
               <div style={{ marginBottom: 16 }}>
-                <label className="input-label">Nama Event</label>
+                <label className="input-label" htmlFor="new-event-name">Nama Event</label>
                 <input
                   type="text"
                   className="input"
@@ -61,7 +61,7 @@ export function EventModals({
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
-                <label className="input-label">Tanggal</label>
+                <label className="input-label" htmlFor="new-event-date">Tanggal</label>
                 <input
                   type="datetime-local"
                   className="input"
@@ -85,8 +85,9 @@ export function EventModals({
             <h2>Edit Event</h2>
             <form onSubmit={onUpdateEvent}>
               <div style={{ marginBottom: 16 }}>
-                <label className="input-label">Nama Event</label>
+                <label className="input-label" htmlFor="edit-event-name">Nama Event</label>
                 <input
+                  id="edit-event-name"
                   type="text"
                   className="input"
                   value={editEventName}
@@ -95,8 +96,9 @@ export function EventModals({
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
-                <label className="input-label">Tanggal</label>
+                <label className="input-label" htmlFor="edit-event-date">Tanggal</label>
                 <input
+                  id="edit-event-date"
                   type="datetime-local"
                   className="input"
                   value={editEventDate}

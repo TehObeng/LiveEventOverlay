@@ -29,6 +29,7 @@ interface OverlayMessage {
 function OverlayContent() {
   const searchParams = useSearchParams();
   const eventId = searchParams.get('eventId');
+  const obsMode = searchParams.get('obs') === '1';
 
   const [config, setConfig] = useState<OverlayConfig>({ ...DEFAULT_OVERLAY_CONFIG });
   const [eventLoading, setEventLoading] = useState(true);
@@ -503,6 +504,10 @@ function OverlayContent() {
   }, [animationLoop, clearOverlayState, eventId, loadEvent, loadMessages, updateDimensions]);
 
   if (!eventId) {
+    if (obsMode) {
+      return <div style={{ position: 'fixed', inset: 0, background: 'transparent' }} />;
+    }
+
     return (
       <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#1a1a2e,#16213e)', color: '#fff', fontFamily: 'Arial,sans-serif', fontSize: 24, textAlign: 'center', padding: 40 }}>
         <div style={{ fontSize: 48, marginBottom: 20 }}>🎬</div>
@@ -517,6 +522,10 @@ function OverlayContent() {
   }
 
   if (loadError) {
+    if (obsMode) {
+      return <div style={{ position: 'fixed', inset: 0, background: 'transparent' }} />;
+    }
+
     return (
       <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#1a1a2e,#16213e)', color: '#fff', fontFamily: 'Arial,sans-serif', textAlign: 'center', padding: 40 }}>
         <div>

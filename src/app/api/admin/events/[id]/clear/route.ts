@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminUser, isUuid, jsonError } from '@/lib/admin-auth';
+import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 
 export async function POST(
@@ -24,6 +25,10 @@ export async function POST(
       .eq('id', id);
 
     if (error) {
+      if (isMissingColumnError(error, 'events.overlay_cleared_at')) {
+        return jsonError(getSchemaSyncMessage('events.overlay_cleared_at'), 500);
+      }
+
       return jsonError(error.message, 500);
     }
 

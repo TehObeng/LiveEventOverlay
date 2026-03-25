@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Message } from '@/lib/types';
 import { isUuid, jsonError } from '@/lib/admin-auth';
 import { toPublicApprovedMessage } from '@/lib/public';
+import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 
 function isValidIsoString(value: string) {
@@ -29,7 +30,7 @@ export async function GET(
     const [eventResult, messageResult] = await Promise.all([
       supabase
         .from('events')
-        .select('overlay_cleared_at')
+        .select('*')
         .eq('id', id)
         .eq('is_active', true)
         .single(),
@@ -50,9 +51,19 @@ export async function GET(
       })(),
     ]);
 
-    if (eventResult.error || !eventResult.data) {
+    if (eventResult.error) {
+      if (isMissingColumnError(eventResult.error, 'events.overlay_cleared_at')) {
+        return jsonError(getSchemaSyncMessage('events.overlay_cleared_at'), 500);
+      }
+
+      return jsonError(eventResult.error.message, 500);
+    }
+
+    if (!eventResult.data) {
       return jsonError('Event tidak ditemukan atau sudah berakhir', 404);
     }
+
+    const eventData = eventResult.data as { overlay_cleared_at?: string | null };
 
     if (messageResult.error) {
       return jsonError(messageResult.error.message, 500);
@@ -65,7 +76,7 @@ export async function GET(
     return NextResponse.json({
       messages,
       nextSince: nextSince || null,
-      clearedAt: eventResult.data.overlay_cleared_at || null,
+      clearedAt: eventData.overlay_cleared_at ?? null,
     });
   } catch (error) {
     console.error('Public messages GET error:', error);
