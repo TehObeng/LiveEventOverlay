@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { isE2EMockModeEnabled, MOCK_SESSION_COOKIE } from './e2e-config';
 import { getMockAdminUserFromCookie } from './mock-backend';
-import { createRouteHandlerSupabaseClient } from './supabase-server';
+import { createRouteHandlerSupabaseClient, createServiceRoleSupabaseClient } from './supabase-server';
 
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,6 +36,26 @@ export async function requireAdminUser() {
 
     if (error || !data.user) {
       return { response: jsonError('Unauthorized', 401) };
+    }
+
+    const serviceClient = createServiceRoleSupabaseClient();
+    const { data: adminUser, error: adminError } = await serviceClient
+      .from('admin_users')
+      .select('user_id')
+      .eq('user_id', data.user.id)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (adminError) {
+      if (adminError.code === '42P01') {
+        return { response: jsonError('Admin table belum tersedia. Jalankan migrasi schema terbaru.', 500) };
+      }
+
+      return { response: jsonError('Gagal memverifikasi akses admin', 500) };
+    }
+
+    if (!adminUser) {
+      return { response: jsonError('Forbidden', 403) };
     }
 
     return {
