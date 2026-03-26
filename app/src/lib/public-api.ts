@@ -1,4 +1,4 @@
-import { PublicEventResponse, PublicMessagesResponse } from './types';
+import { PublicEventResponse, PublicMessagesResponse, SiteContentResponse } from './types';
 import { requestJson } from './request';
 
 export async function fetchPublicEvent(eventId: string) {
@@ -16,4 +16,10 @@ export function fetchPublicMessages(eventId: string, since?: string) {
   return requestJson<PublicMessagesResponse>(
     `/api/public/events/${encodeURIComponent(eventId)}/messages${query ? `?${query}` : ''}`,
   );
+}
+
+
+export async function fetchPublicSiteContent() {
+  const data = await requestJson<SiteContentResponse>('/api/public/site-content');
+  return data.content;
 }
