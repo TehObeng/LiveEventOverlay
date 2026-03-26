@@ -18,6 +18,8 @@ import {
   sendAdminTestMessage,
   updateAdminEvent,
   updateAdminMessage,
+  fetchAdminSiteContent,
+  updateAdminSiteContent,
 } from '@/lib/admin-api';
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/datetime';
 import { normalizeOverlayConfig } from '@/lib/public';
@@ -27,8 +29,9 @@ import {
   isSupabaseConfigured,
   isSupabaseSessionMissingError,
 } from '@/lib/supabase';
-import { AdminSessionData, DEFAULT_OVERLAY_CONFIG, EventData, Message, OverlayConfig } from '@/lib/types';
+import { AdminSessionData, DEFAULT_OVERLAY_CONFIG, EventData, Message, OverlayConfig, SiteContent } from '@/lib/types';
 import { isLocalhostUrl, resolveAppBaseUrl } from '@/lib/url';
+import { DEFAULT_SITE_CONTENT, normalizeSiteContent } from '@/lib/site-content';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { EventModals } from '@/components/admin/EventModals';
 import { MessagePanel } from '@/components/admin/MessagePanel';
@@ -69,6 +72,9 @@ export default function AdminPage() {
   const [shareBaseUrl, setShareBaseUrl] = useState('');
   const [shareWarning, setShareWarning] = useState('');
 
+  const [siteContent, setSiteContent] = useState<SiteContent>(DEFAULT_SITE_CONTENT);
+  const [siteContentDraft, setSiteContentDraft] = useState(() => JSON.stringify(DEFAULT_SITE_CONTENT, null, 2));
+  const [cmsLoading, setCmsLoading] = useState(false);
   const [toast, setToast] = useState<{ type: string; text: string } | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -184,6 +190,36 @@ export default function AdminPage() {
       subscription.unsubscribe();
     };
   }, [router, showToast]);
+
+  useEffect(() => {
+    if (authLoading || !user) {
+      return;
+    }
+
+    let active = true;
+    setCmsLoading(true);
+
+    const loadSiteContent = async () => {
+      try {
+        const nextContent = normalizeSiteContent(await fetchAdminSiteContent());
+        if (!active) return;
+        setSiteContent(nextContent);
+        setSiteContentDraft(JSON.stringify(nextContent, null, 2));
+      } catch (error) {
+        if (active) {
+          showToast('error', getErrorMessage(error, 'Gagal memuat konten CMS'));
+        }
+      } finally {
+        if (active) setCmsLoading(false);
+      }
+    };
+
+    void loadSiteContent();
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, user, showToast]);
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -511,6 +547,28 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleSaveSiteContent = async () => {
+    try {
+      const parsed = JSON.parse(siteContentDraft);
+      const normalized = normalizeSiteContent(parsed);
+      setCmsLoading(true);
+      const saved = await updateAdminSiteContent(normalized);
+      const clean = normalizeSiteContent(saved);
+      setSiteContent(clean);
+      setSiteContentDraft(JSON.stringify(clean, null, 2));
+      showToast('success', 'Konten website berhasil diperbarui');
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        showToast('error', 'JSON konten tidak valid');
+        return;
+      }
+
+      showToast('error', getErrorMessage(error, 'Gagal menyimpan konten CMS'));
+    } finally {
+      setCmsLoading(false);
+    }
+  };
+
   const copyToClipboard = useCallback(async (value: string, successMessage: string) => {
     if (!value) {
       showToast('error', 'Link belum tersedia');
@@ -661,6 +719,25 @@ export default function AdminPage() {
           onSaveConfig={handleSaveOverlayConfig}
         />
       </div>
+
+      <section className="glass-card cms-editor" style={{ marginTop: 20 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
+          <div>
+            <h2 style={{ marginBottom: 4 }}>CMS Konten Landing Page</h2>
+            <p className="text-sm text-muted">Edit hampir seluruh copy website dari JSON terstruktur. Perubahan tersimpan ke database Supabase.</p>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => { void handleSaveSiteContent(); }} disabled={cmsLoading}>
+            {cmsLoading ? 'Menyimpan...' : 'Simpan Konten'}
+          </button>
+        </div>
+        <textarea
+          className="input textarea"
+          value={siteContentDraft}
+          onChange={(event) => setSiteContentDraft(event.target.value)}
+          aria-label="JSON konten website"
+        />
+        <p className="text-xs text-muted" style={{ marginTop: 8 }}>Snapshot aktif: {siteContent.hero.title}</p>
+      </section>
 
       <EventModals
         showCreateEvent={showCreateEvent}

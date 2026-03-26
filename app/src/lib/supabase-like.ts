@@ -41,7 +41,7 @@ export interface BrowserSupabaseClientLike {
 
 export type QueryResultLike = {
   data: unknown;
-  error: { message: string } | null;
+  error: { message: string; code?: string } | null;
 };
 
 export interface QueryBuilderLike extends PromiseLike<QueryResultLike> {
@@ -55,6 +55,8 @@ export interface QueryBuilderLike extends PromiseLike<QueryResultLike> {
   order(column: string, options?: { ascending?: boolean }): QueryBuilderLike;
   limit(value: number): QueryBuilderLike;
   single(): QueryBuilderLike;
+  maybeSingle(): QueryBuilderLike;
+  upsert(payload: unknown, options?: { onConflict?: string }): QueryBuilderLike;
 }
 
 export interface ServiceRoleSupabaseClientLike {

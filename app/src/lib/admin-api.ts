@@ -7,6 +7,8 @@ import {
   Message,
   OverlayConfig,
   SuccessResponse,
+  SiteContent,
+  SiteContentResponse,
 } from './types';
 import { requestJson } from './request';
 
@@ -114,4 +116,19 @@ export function clearAdminOverlay(eventId: string) {
   return requestJson<SuccessResponse>(`${eventPath(eventId)}/clear`, {
     method: 'POST',
   });
+}
+
+
+export async function fetchAdminSiteContent() {
+  const data = await requestJson<SiteContentResponse>('/api/admin/site-content');
+  return data.content;
+}
+
+export async function updateAdminSiteContent(content: SiteContent) {
+  const data = await requestJson<SiteContentResponse>('/api/admin/site-content', {
+    method: 'PUT',
+    body: JSON.stringify(content),
+  });
+
+  return data.content;
 }
