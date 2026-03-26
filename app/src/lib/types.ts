@@ -107,6 +107,74 @@ export interface AdminSessionData {
 
 export type AdminBulkMessageAction = 'approve' | 'reject' | 'delete';
 
+
+export interface ContentLink {
+  label: string;
+  href: string;
+}
+
+export interface SiteContent {
+  nav: {
+    logoText: string;
+    links: ContentLink[];
+    adminButtonLabel: string;
+  };
+  hero: {
+    badge: string;
+    title: string;
+    subtitle: string;
+    primaryCtaLabel: string;
+    primaryCtaHref: string;
+    secondaryCtaLabel: string;
+    secondaryCtaHref: string;
+    highlightNotice: string;
+  };
+  sections: {
+    featuresTitle: string;
+    featuresSubtitle: string;
+    pricingTitle: string;
+    pricingSubtitle: string;
+    timelineTitle: string;
+    timelineSubtitle: string;
+    faqTitle: string;
+    faqSubtitle: string;
+    registrationTitle: string;
+    registrationSubtitle: string;
+  };
+  features: Array<{
+    title: string;
+    description: string;
+  }>;
+  pricingCards: Array<{
+    name: string;
+    price: string;
+    description: string;
+    items: string[];
+    ctaLabel: string;
+  }>;
+  timelineItems: Array<{
+    title: string;
+    description: string;
+  }>;
+  faqItems: Array<{
+    question: string;
+    answer: string;
+  }>;
+  registration: {
+    ctaLabel: string;
+    ctaHref: string;
+    helperText: string;
+  };
+  footer: {
+    text: string;
+    links: ContentLink[];
+  };
+}
+
+export interface SiteContentResponse {
+  content: SiteContent;
+}
+
 export interface ApiErrorResponse {
   error: string;
 }

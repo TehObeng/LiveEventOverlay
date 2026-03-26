@@ -56,6 +56,16 @@ const checks = [
     label: 'messages.approved_by',
     select: 'approved_by',
   },
+  {
+    table: 'admin_users',
+    label: 'admin_users.is_active',
+    select: 'is_active',
+  },
+  {
+    table: 'site_content',
+    label: 'site_content.content',
+    select: 'content',
+  },
 ];
 
 async function runCheck(check) {

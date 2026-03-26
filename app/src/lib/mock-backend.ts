@@ -2,7 +2,7 @@ import 'server-only';
 
 import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { DEFAULT_OVERLAY_CONFIG, EventData, Message } from '@/lib/types';
+import { DEFAULT_OVERLAY_CONFIG, EventData, Message, SiteContent } from '@/lib/types';
 import {
   getE2EAdminEmail,
   getE2EAdminPassword,
@@ -16,7 +16,7 @@ import { ServiceRoleSupabaseClientLike } from '@/lib/supabase-like';
 const MOCK_ADMIN_ID = '00000000-0000-4000-8000-000000000001';
 const MOCK_SESSION_VALUE = 'codex-e2e-admin';
 
-type TableName = 'events' | 'messages';
+type TableName = 'events' | 'messages' | 'admin_users' | 'site_content';
 type MockResult = {
   data: unknown;
   error: { message: string } | null;
@@ -25,6 +25,8 @@ type MockResult = {
 type MockDatabaseState = {
   events: EventData[];
   messages: Message[];
+  admin_users: Array<{ user_id: string; is_active: boolean; role: 'admin' }>;
+  site_content: Array<{ key: string; content: SiteContent; updated_by: string | null }>;
 };
 
 type Filter =
@@ -99,6 +101,8 @@ function buildInitialState(): MockDatabaseState {
   return {
     events: [event],
     messages,
+    admin_users: [{ user_id: MOCK_ADMIN_ID, is_active: true, role: 'admin' }],
+    site_content: [],
   };
 }
 
@@ -201,6 +205,7 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
   private rowLimit: number | null = null;
 
   private returnSingle = false;
+  private returnMaybeSingle = false;
 
   private payload: unknown = null;
 
@@ -261,6 +266,20 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
     return this;
   }
 
+  maybeSingle() {
+    this.returnMaybeSingle = true;
+    return this;
+  }
+
+  upsert(payload: unknown, options?: { onConflict?: string }) {
+    this.action = 'insert';
+    this.payload = payload;
+    if (options?.onConflict === 'key') {
+      this.filters = [];
+    }
+    return this;
+  }
+
   private getTableRows(): unknown[] {
     const state = getState();
     return state[this.table] as unknown[];
@@ -272,8 +291,15 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
       state.events = nextRows as EventData[];
       return;
     }
-
-    state.messages = nextRows as Message[];
+    if (this.table === 'messages') {
+      state.messages = nextRows as Message[];
+      return;
+    }
+    if (this.table === 'admin_users') {
+      state.admin_users = nextRows as MockDatabaseState['admin_users'];
+      return;
+    }
+    state.site_content = nextRows as MockDatabaseState['site_content'];
   }
 
   private executeSelect() {
@@ -297,7 +323,7 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
     }
 
     const selected = rows.map((row) => pickFields(row, this.selection));
-    if (!this.returnSingle) {
+    if (!this.returnSingle && !this.returnMaybeSingle) {
       return {
         data: cloneValue(selected),
         error: null,
@@ -305,6 +331,9 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
     }
 
     const first = selected[0] ?? null;
+    if (this.returnMaybeSingle) {
+      return { data: cloneValue(first), error: null };
+    }
     return first
       ? { data: cloneValue(first), error: null }
       : { data: null, error: { message: 'No rows found' } };
@@ -312,12 +341,35 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
 
   private executeInsert() {
     const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
-    const nextRows =
-      this.table === 'events'
-        ? rows.map((row) => createEventRecord(row as Record<string, unknown>))
-        : rows.map((row) => createMessageRecord(row as Record<string, unknown>));
-    const currentRows = this.getTableRows();
-    this.setTableRows([...currentRows, ...nextRows]);
+    let nextRows: unknown[];
+    const currentRows = [...this.getTableRows()] as Record<string, unknown>[];
+    if (this.table === 'events') {
+      nextRows = rows.map((row) => createEventRecord(row as Record<string, unknown>));
+      this.setTableRows([...currentRows, ...nextRows]);
+    } else if (this.table === 'messages') {
+      nextRows = rows.map((row) => createMessageRecord(row as Record<string, unknown>));
+      this.setTableRows([...currentRows, ...nextRows]);
+    } else if (this.table === 'site_content') {
+      const incoming = rows.map((row) => row as Record<string, unknown>);
+      for (const item of incoming) {
+        const existingIndex = currentRows.findIndex((entry) => entry.key === item.key);
+        const normalized = {
+          key: String(item.key || 'landing_page'),
+          content: (item.content || {}) as SiteContent,
+          updated_by: typeof item.updated_by === 'string' ? item.updated_by : null,
+        };
+        if (existingIndex >= 0) {
+          currentRows[existingIndex] = { ...currentRows[existingIndex], ...normalized };
+        } else {
+          currentRows.push(normalized);
+        }
+      }
+      nextRows = incoming;
+      this.setTableRows(currentRows);
+    } else {
+      nextRows = rows.map((row) => row as Record<string, unknown>);
+      this.setTableRows([...currentRows, ...nextRows]);
+    }
 
     if (this.selection === '*' || this.selection) {
       const selected = nextRows.map((row) =>
