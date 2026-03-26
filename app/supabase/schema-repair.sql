@@ -252,6 +252,101 @@ BEGIN
   END IF;
 END $$;
 
+
+
+-- ============================================
+-- ADMIN USERS + SITE CONTENT REPAIR
+-- ============================================
+CREATE TABLE IF NOT EXISTS admin_users (
+  user_id UUID PRIMARY KEY,
+  role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin')),
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by UUID
+);
+
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_by UUID;
+
+UPDATE admin_users SET role = 'admin' WHERE role IS NULL;
+UPDATE admin_users SET is_active = true WHERE is_active IS NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'admin_users_role_check'
+  ) THEN
+    ALTER TABLE admin_users
+      ADD CONSTRAINT admin_users_role_check
+      CHECK (role IN ('admin'));
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS site_content (
+  key TEXT PRIMARY KEY,
+  content JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by UUID
+);
+
+ALTER TABLE site_content ADD COLUMN IF NOT EXISTS content JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE site_content ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE site_content ADD COLUMN IF NOT EXISTS updated_by UUID;
+
+CREATE OR REPLACE FUNCTION set_updated_at_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_site_content_updated_at ON site_content;
+CREATE TRIGGER trg_site_content_updated_at
+  BEFORE UPDATE ON site_content
+  FOR EACH ROW
+  EXECUTE FUNCTION set_updated_at_timestamp();
+
+INSERT INTO site_content (key, content)
+VALUES ('landing_page', '{}'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_admin_users_active ON admin_users(is_active);
+
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE site_content ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read admin_users" ON admin_users;
+DROP POLICY IF EXISTS "Authenticated users can manage admin_users" ON admin_users;
+DROP POLICY IF EXISTS "Authenticated users can read site_content" ON site_content;
+DROP POLICY IF EXISTS "Authenticated users can manage site_content" ON site_content;
+
+CREATE POLICY "Authenticated users can read admin_users"
+  ON admin_users FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated users can manage admin_users"
+  ON admin_users FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can read site_content"
+  ON site_content FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated users can manage site_content"
+  ON site_content FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
 -- ============================================
 -- DONE
 -- ============================================
