@@ -21,6 +21,7 @@ import {
   fetchAdminSiteContent,
   updateAdminSiteContent,
 } from '@/lib/admin-api';
+import { ApiRequestError } from '@/lib/request';
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/datetime';
 import { normalizeOverlayConfig } from '@/lib/public';
 import {
@@ -38,6 +39,22 @@ import { MessagePanel } from '@/components/admin/MessagePanel';
 
 function getErrorMessage(error: unknown, fallback = 'Terjadi kesalahan') {
   return error instanceof Error ? error.message : fallback;
+}
+
+function getAdminAccessError(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 403) {
+      return 'Akun ini tidak memiliki akses admin.';
+    }
+
+    if (error.status === 401) {
+      return 'Sesi admin berakhir. Silakan login ulang.';
+    }
+
+    return error.message;
+  }
+
+  return getErrorMessage(error, 'Gagal memverifikasi sesi admin');
 }
 
 export default function AdminPage() {
@@ -157,7 +174,16 @@ export default function AdminPage() {
       } catch (error) {
         console.error('Admin bootstrap error:', error);
         if (active) {
-          showToast('error', getErrorMessage(error, 'Gagal memverifikasi sesi admin'));
+          setUser(null);
+
+          if (
+            error instanceof ApiRequestError &&
+            (error.status === 401 || error.status === 403)
+          ) {
+            await supabase.auth.signOut().catch(() => null);
+          }
+
+          showToast('error', getAdminAccessError(error));
           router.replace('/admin/login');
         }
       } finally {
@@ -173,15 +199,8 @@ export default function AdminPage() {
       if (!active) return;
 
       if (event === 'SIGNED_OUT' || !session) {
+        setUser(null);
         router.replace('/admin/login');
-        return;
-      }
-
-      if (session.user) {
-        setUser({
-          userId: session.user.id,
-          email: session.user.email ?? null,
-        });
       }
     });
 

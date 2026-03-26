@@ -2,12 +2,30 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { fetchAdminSession } from '@/lib/admin-api';
+import { ApiRequestError } from '@/lib/request';
 import {
   getBrowserSupabaseClient,
   getSupabaseConfigError,
   isSupabaseConfigured,
   isSupabaseSessionMissingError,
 } from '@/lib/supabase';
+
+function getAdminAccessError(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 403) {
+      return 'Akun ini tidak memiliki akses admin.';
+    }
+
+    if (error.status === 401) {
+      return 'Sesi admin tidak valid. Silakan login ulang.';
+    }
+
+    return error.message;
+  }
+
+  return 'Gagal memverifikasi akses admin.';
+}
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -44,7 +62,26 @@ export default function AdminLoginPage() {
         }
 
         if (data.user) {
-          router.replace('/admin');
+          try {
+            await fetchAdminSession();
+            if (!active) return;
+            router.replace('/admin');
+            return;
+          } catch (sessionError) {
+            console.error('Admin session verification failed:', sessionError);
+
+            if (!active) return;
+
+            if (
+              sessionError instanceof ApiRequestError &&
+              (sessionError.status === 401 || sessionError.status === 403)
+            ) {
+              await supabase.auth.signOut().catch(() => null);
+            }
+
+            setError(getAdminAccessError(sessionError));
+          }
+
           return;
         }
       } catch (sessionError) {
@@ -95,6 +132,22 @@ export default function AdminLoginPage() {
         };
 
         setError(errorMap[authError.message] || `Login gagal: ${authError.message}`);
+        return;
+      }
+
+      try {
+        await fetchAdminSession();
+      } catch (sessionError) {
+        console.error('Admin session verification failed:', sessionError);
+
+        if (
+          sessionError instanceof ApiRequestError &&
+          (sessionError.status === 401 || sessionError.status === 403)
+        ) {
+          await supabase.auth.signOut().catch(() => null);
+        }
+
+        setError(getAdminAccessError(sessionError));
         return;
       }
 
