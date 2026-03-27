@@ -15,7 +15,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 type AnyDatabase = any;
 
 export function isSupabaseConfigured(): boolean {
-  return supabaseUrl.startsWith('http') && supabaseAnonKey.length > 20;
+  return isE2EMockModeEnabled() || (supabaseUrl.startsWith('http') && supabaseAnonKey.length > 20);
 }
 
 export function getSupabaseConfigError() {

@@ -10,7 +10,7 @@
     "lint": "eslint src tests playwright.config.ts next.config.ts",
     "type-check": "tsc --noEmit",
     "check:schema": "node scripts/check-supabase-schema.mjs",
-    "test": "node --test --experimental-strip-types --experimental-specifier-resolution=node tests/*.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "test:polish": "playwright test --grep @polish",
     "show-report": "playwright show-report"
@@ -37,6 +37,7 @@
     "eslint-config-next": "16.2.1",
     "lighthouse": "^13.0.3",
     "playwright": "^1.58.2",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   }
 }
