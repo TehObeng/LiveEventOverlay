@@ -62,7 +62,7 @@ export function getCatchUpSpawnInterval(spawnInterval: number) {
   return Math.max(spawnInterval, 1600);
 }
 
-export function resetOverlayDeliveryState(_state?: OverlayDeliveryState): OverlayDeliveryState {
+export function resetOverlayDeliveryState(): OverlayDeliveryState {
   return createOverlayDeliveryState();
 }
 

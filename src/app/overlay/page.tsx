@@ -108,7 +108,7 @@ function OverlayContent() {
   const resetDeliveryState = useCallback((lowerBound: string | null) => {
     sinceRef.current = lowerBound || sessionStartRef.current;
     cursorRef.current = null;
-    runtimeStateRef.current = resetOverlayDeliveryState(runtimeStateRef.current);
+    runtimeStateRef.current = resetOverlayDeliveryState();
     clearOverlayState(true);
   }, [clearOverlayState]);
 

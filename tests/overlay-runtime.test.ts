@@ -50,10 +50,7 @@ test('getCatchUpSpawnInterval enforces a 1600ms floor', () => {
 
 test('resetOverlayDeliveryState clears reconnect backlog', () => {
   assert.deepEqual(
-    resetOverlayDeliveryState({
-      mode: 'catching_up',
-      catchUpBacklog: 3,
-    }),
+    resetOverlayDeliveryState(),
     {
       mode: 'booting',
       catchUpBacklog: 0,
