@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  completeCatchUpDrain,
   createOverlayDeliveryState,
   getCatchUpSpawnInterval,
   mergeIncomingMessages,
@@ -14,6 +15,18 @@ test('reducePollStatus moves from live to reconnecting on poll failure', () => {
   });
 
   assert.equal(state.mode, 'reconnecting');
+});
+
+test('reducePollStatus returns to live when reconnecting poll succeeds', () => {
+  const reconnecting = reducePollStatus(createOverlayDeliveryState(), {
+    type: 'poll-failed',
+  });
+
+  const state = reducePollStatus(reconnecting, {
+    type: 'poll-succeeded',
+  });
+
+  assert.equal(state.mode, 'live');
 });
 
 test('mergeIncomingMessages enters catching_up when backlog arrives after reconnect', () => {
@@ -46,4 +59,24 @@ test('resetOverlayDeliveryState clears reconnect backlog', () => {
       catchUpBacklog: 0,
     },
   );
+});
+
+test('completeCatchUpDrain returns live mode when backlog reaches zero', () => {
+  const state = completeCatchUpDrain({
+    mode: 'catching_up',
+    catchUpBacklog: 1,
+  });
+
+  assert.equal(state.mode, 'live');
+  assert.equal(state.catchUpBacklog, 0);
+});
+
+test('completeCatchUpDrain stays in catching_up while backlog remains', () => {
+  const state = completeCatchUpDrain({
+    mode: 'catching_up',
+    catchUpBacklog: 3,
+  });
+
+  assert.equal(state.mode, 'catching_up');
+  assert.equal(state.catchUpBacklog, 2);
 });

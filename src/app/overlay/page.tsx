@@ -11,7 +11,21 @@ import {
   OverlayLaneState,
   pickRandomLane,
 } from '@/lib/overlay';
-import { DEFAULT_OVERLAY_CONFIG, OverlayConfig, PublicApprovedMessage, ScrollDirection } from '@/lib/types';
+import {
+  completeCatchUpDrain,
+  createOverlayDeliveryState,
+  getCatchUpSpawnInterval,
+  mergeIncomingMessages,
+  reducePollStatus,
+  resetOverlayDeliveryState,
+} from '@/lib/overlay-runtime';
+import {
+  DEFAULT_OVERLAY_CONFIG,
+  MessageCursor,
+  OverlayConfig,
+  PublicApprovedMessage,
+  ScrollDirection,
+} from '@/lib/types';
 
 interface OverlayMessage {
   id: string;
@@ -50,6 +64,10 @@ function OverlayContent() {
   const sessionStartRef = useRef('');
   const sinceRef = useRef('');
   const clearedAtRef = useRef<string | null>(null);
+  const cursorRef = useRef<MessageCursor | null>(null);
+  const eventLoadedRef = useRef(false);
+  const messagePollInFlightRef = useRef(false);
+  const runtimeStateRef = useRef(createOverlayDeliveryState());
 
   useEffect(() => {
     document.documentElement.classList.add('overlay-mode');
@@ -76,6 +94,7 @@ function OverlayContent() {
     });
     activeRef.current.clear();
     queueRef.current.length = 0;
+    lastSpawnRef.current = 0;
 
     if (tiktokRef.current) {
       tiktokRef.current.innerHTML = '';
@@ -85,6 +104,13 @@ function OverlayContent() {
       seenRef.current.clear();
     }
   }, []);
+
+  const resetDeliveryState = useCallback((lowerBound: string | null) => {
+    sinceRef.current = lowerBound || sessionStartRef.current;
+    cursorRef.current = null;
+    runtimeStateRef.current = resetOverlayDeliveryState(runtimeStateRef.current);
+    clearOverlayState(true);
+  }, [clearOverlayState]);
 
   const applyConfig = useCallback((nextConfig: OverlayConfig) => {
     const previousConfig = configRef.current;
@@ -386,11 +412,19 @@ function OverlayContent() {
       });
     }
 
-    if (queueRef.current.length > 0 && now - lastSpawnRef.current >= currentConfig.spawnInterval) {
+    const spawnInterval =
+      runtimeStateRef.current.mode === 'catching_up'
+        ? getCatchUpSpawnInterval(currentConfig.spawnInterval)
+        : currentConfig.spawnInterval;
+
+    if (queueRef.current.length > 0 && now - lastSpawnRef.current >= spawnInterval) {
       if (activeRef.current.size < currentConfig.maxMessages) {
         const nextMessage = queueRef.current.shift();
         if (nextMessage) {
           spawnMessage(nextMessage);
+          if (runtimeStateRef.current.mode === 'catching_up') {
+            runtimeStateRef.current = completeCatchUpDrain(runtimeStateRef.current);
+          }
           lastSpawnRef.current = now;
         }
       }
@@ -400,8 +434,11 @@ function OverlayContent() {
   }, [spawnMessage, updateDimensions]);
 
   const queueApprovedMessages = useCallback((messages: PublicApprovedMessage[]) => {
+    const acceptedMessages: PublicApprovedMessage[] = [];
+    const lowerBound = sinceRef.current || sessionStartRef.current;
+
     messages.forEach((message) => {
-      if (!message.approved_at || message.approved_at < sessionStartRef.current) {
+      if (!message.approved_at || message.approved_at < lowerBound) {
         return;
       }
 
@@ -410,6 +447,7 @@ function OverlayContent() {
       }
 
       seenRef.current.add(message.id);
+      acceptedMessages.push(message);
       const text = message.sender_name ? `${message.sender_name}: ${message.text}` : message.text;
       queueRef.current.push({
         id: message.id,
@@ -423,44 +461,76 @@ function OverlayContent() {
         size: 0,
       });
     });
+
+    return acceptedMessages;
   }, []);
 
   const loadEvent = useCallback(async (id: string) => {
     try {
       const event = await fetchPublicEvent(id);
       applyConfig(event.overlay_config);
+      eventLoadedRef.current = true;
       setLoadError('');
 
       if (event.overlay_cleared_at && event.overlay_cleared_at !== clearedAtRef.current) {
         clearedAtRef.current = event.overlay_cleared_at;
-        sinceRef.current = event.overlay_cleared_at;
-        clearOverlayState(true);
+        resetDeliveryState(event.overlay_cleared_at);
       }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Gagal memuat overlay');
+      if (!eventLoadedRef.current) {
+        setLoadError(error instanceof Error ? error.message : 'Gagal memuat overlay');
+      } else {
+        console.error('Overlay event refresh error:', error);
+      }
     } finally {
       setEventLoading(false);
     }
-  }, [applyConfig, clearOverlayState]);
+  }, [applyConfig, resetDeliveryState]);
 
   const loadMessages = useCallback(async (id: string) => {
+    if (messagePollInFlightRef.current) {
+      return;
+    }
+
+    messagePollInFlightRef.current = true;
+    const wasReconnecting = runtimeStateRef.current.mode === 'reconnecting';
+
     try {
-      const response = await fetchPublicMessages(id, sinceRef.current || sessionStartRef.current);
+      const response = await fetchPublicMessages(
+        id,
+        cursorRef.current ?? (sinceRef.current || sessionStartRef.current),
+      );
+      runtimeStateRef.current = reducePollStatus(runtimeStateRef.current, { type: 'poll-succeeded' });
 
       if (response.clearedAt && response.clearedAt !== clearedAtRef.current) {
         clearedAtRef.current = response.clearedAt;
-        sinceRef.current = response.clearedAt;
-        clearOverlayState(true);
+        resetDeliveryState(response.clearedAt);
+        return;
       }
 
-      queueApprovedMessages(response.messages);
-      if (response.nextSince) {
+      const acceptedMessages = queueApprovedMessages(response.messages);
+
+      if (wasReconnecting && acceptedMessages.length > 0) {
+        runtimeStateRef.current = {
+          mode: 'catching_up',
+          catchUpBacklog: acceptedMessages.length,
+        };
+      } else {
+        runtimeStateRef.current = mergeIncomingMessages(runtimeStateRef.current, acceptedMessages);
+      }
+
+      if (response.nextCursor) {
+        cursorRef.current = response.nextCursor;
+        sinceRef.current = response.nextCursor.approvedAt;
+      } else if (!cursorRef.current && response.nextSince) {
         sinceRef.current = response.nextSince;
       }
     } catch {
-      // Ignore polling blips and keep trying on the next interval.
+      runtimeStateRef.current = reducePollStatus(runtimeStateRef.current, { type: 'poll-failed' });
+    } finally {
+      messagePollInFlightRef.current = false;
     }
-  }, [clearOverlayState, queueApprovedMessages]);
+  }, [queueApprovedMessages, resetDeliveryState]);
 
   useEffect(() => {
     if (!eventId) {
@@ -470,9 +540,15 @@ function OverlayContent() {
     }
 
     destroyedRef.current = false;
+    eventLoadedRef.current = false;
+    messagePollInFlightRef.current = false;
+    runtimeStateRef.current = createOverlayDeliveryState();
     sessionStartRef.current = new Date().toISOString();
     sinceRef.current = sessionStartRef.current;
+    cursorRef.current = null;
     clearedAtRef.current = null;
+    setEventLoading(true);
+    setLoadError('');
     updateDimensions();
     lanesRef.current = createOverlayLaneState(configRef.current.laneCount);
     clearOverlayState(true);
@@ -495,6 +571,7 @@ function OverlayContent() {
 
     return () => {
       destroyedRef.current = true;
+      messagePollInFlightRef.current = false;
       cancelAnimationFrame(animationRef.current);
       clearInterval(messageInterval);
       clearInterval(eventInterval);

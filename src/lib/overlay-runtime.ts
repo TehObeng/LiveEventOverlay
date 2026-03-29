@@ -28,7 +28,7 @@ export function reducePollStatus(
     };
   }
 
-  return state.mode === 'booting'
+  return state.mode === 'booting' || state.mode === 'reconnecting'
     ? { ...state, mode: 'live' }
     : state;
 }
@@ -64,4 +64,13 @@ export function getCatchUpSpawnInterval(spawnInterval: number) {
 
 export function resetOverlayDeliveryState(_state?: OverlayDeliveryState): OverlayDeliveryState {
   return createOverlayDeliveryState();
+}
+
+export function completeCatchUpDrain(state: OverlayDeliveryState): OverlayDeliveryState {
+  const nextBacklog = Math.max(0, state.catchUpBacklog - 1);
+
+  return {
+    mode: nextBacklog > 0 ? 'catching_up' : 'live',
+    catchUpBacklog: nextBacklog,
+  };
 }
