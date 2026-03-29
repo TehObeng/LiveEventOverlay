@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Message } from '@/lib/types';
 import { isUuid, jsonError } from '@/lib/admin-auth';
+import {
+  getNextMessageCursor,
+  isMessageAfterCursor,
+  parseMessageCursorInput,
+} from '@/lib/public-message-cursor';
 import { toPublicApprovedMessage } from '@/lib/public';
 import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
@@ -19,10 +24,23 @@ export async function GET(
     return jsonError('Event ID tidak valid');
   }
 
-  const since = request.nextUrl.searchParams.get('since');
-  if (since && !isValidIsoString(since)) {
+  const legacySince = request.nextUrl.searchParams.get('since');
+  const sinceApprovedAt = request.nextUrl.searchParams.get('sinceApprovedAt');
+  const sinceId = request.nextUrl.searchParams.get('sinceId');
+
+  if (legacySince && !isValidIsoString(legacySince)) {
     return jsonError('Parameter since tidak valid');
   }
+
+  if (sinceApprovedAt && !isValidIsoString(sinceApprovedAt)) {
+    return jsonError('Parameter sinceApprovedAt tidak valid');
+  }
+
+  if ((sinceApprovedAt && !sinceId) || (!sinceApprovedAt && sinceId)) {
+    return jsonError('Cursor pesan tidak valid');
+  }
+
+  const cursor = parseMessageCursorInput(sinceApprovedAt, sinceId);
 
   try {
     const supabase = createServiceRoleSupabaseClient();
@@ -43,8 +61,10 @@ export async function GET(
           .order('approved_at', { ascending: true })
           .limit(50);
 
-        if (since) {
-          query = query.gt('approved_at', since);
+        if (cursor) {
+          query = query.gte('approved_at', cursor.approvedAt);
+        } else if (legacySince) {
+          query = query.gt('approved_at', legacySince);
         }
 
         return query;
@@ -70,12 +90,22 @@ export async function GET(
     }
 
     const messages = ((messageResult.data || []) as Pick<Message, 'id' | 'text' | 'sender_name' | 'approved_at'>[])
+      .sort((left, right) => {
+        if (left.approved_at === right.approved_at) {
+          return left.id.localeCompare(right.id);
+        }
+
+        return String(left.approved_at).localeCompare(String(right.approved_at));
+      })
+      .filter((message) => (cursor ? isMessageAfterCursor(message, cursor) : true))
       .map(toPublicApprovedMessage);
-    const nextSince = messages.length > 0 ? messages[messages.length - 1].approved_at : since;
+    const nextCursor = getNextMessageCursor(messages);
+    const nextSince = nextCursor?.approvedAt ?? legacySince ?? null;
 
     return NextResponse.json({
       messages,
-      nextSince: nextSince || null,
+      nextCursor,
+      nextSince,
       clearedAt: eventData.overlay_cleared_at ?? null,
     });
   } catch (error) {

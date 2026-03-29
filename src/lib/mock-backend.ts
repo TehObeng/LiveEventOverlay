@@ -32,6 +32,7 @@ type MockDatabaseState = {
 type Filter =
   | { type: 'eq'; column: string; value: unknown }
   | { type: 'in'; column: string; value: unknown[] }
+  | { type: 'gte'; column: string; value: unknown }
   | { type: 'gt'; column: string; value: unknown };
 
 type OrderBy = {
@@ -141,6 +142,8 @@ function applyFilters<T extends Record<string, unknown>>(rows: T[], filters: Fil
           return current === filter.value;
         case 'in':
           return filter.value.includes(current);
+        case 'gte':
+          return String(current ?? '') >= String(filter.value ?? '');
         case 'gt':
           return String(current ?? '') > String(filter.value ?? '');
       }
@@ -245,6 +248,11 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
 
   gt(column: string, value: unknown) {
     this.filters.push({ type: 'gt', column, value });
+    return this;
+  }
+
+  gte(column: string, value: unknown) {
+    this.filters.push({ type: 'gte', column, value });
     return this;
   }
 

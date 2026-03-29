@@ -114,16 +114,16 @@ async function resetMockSession(page: import('@playwright/test').Page) {
   });
   expect(response.ok()).toBeTruthy();
 
-  const cookieOrigin = new URL(
-    process.env.PLAYWRIGHT_BASE_URL || page.url() || 'http://127.0.0.1:3000',
-  );
+  const cookieSource =
+    process.env.PLAYWRIGHT_BASE_URL ||
+    (page.url().startsWith('http') ? page.url() : 'http://127.0.0.1:3000');
+  const cookieOrigin = new URL(cookieSource);
 
   await page.context().addCookies([
     {
       name: MOCK_SESSION_COOKIE,
       value: 'codex-e2e-admin',
-      domain: cookieOrigin.hostname,
-      path: '/',
+      url: cookieOrigin.origin,
       secure: cookieOrigin.protocol === 'https:',
       sameSite: 'Lax',
     },
@@ -303,6 +303,122 @@ test('@polish admin moderation and overlay playback work in a real controlled br
   await context.close();
   await overlayContext.close();
   await publicContext.close();
+});
+
+test('@polish overlay reconnect keeps visible content and catches up missed messages without flooding', async ({ browser, request }) => {
+  test.slow();
+  const adminContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const adminPage = await adminContext.newPage();
+  const overlayContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const overlayPage = await overlayContext.newPage();
+  let outageEnabled = false;
+  let outageHits = 0;
+
+  const adminAudit = createAuditRecord();
+  const overlayAudit = createAuditRecord();
+  attachAudits(adminPage, adminAudit);
+  attachAudits(overlayPage, overlayAudit);
+
+  await resetMockSession(adminPage);
+  const currentEventResponse = await adminPage.request.get(`/api/admin/events/${EVENT_ID}`);
+  expect(currentEventResponse.ok()).toBeTruthy();
+  const currentEventPayload = await currentEventResponse.json();
+  const updateEventResponse = await adminPage.request.patch(`/api/admin/events/${EVENT_ID}`, {
+    data: {
+      overlay_config: {
+        ...currentEventPayload.event.overlay_config,
+        spawnInterval: 400,
+      },
+    },
+  });
+  expect(updateEventResponse.ok()).toBeTruthy();
+
+  await overlayPage.route(`**/api/public/events/${EVENT_ID}/messages**`, async (route) => {
+    if (outageEnabled) {
+      outageHits += 1;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'mock outage' }),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await overlayPage.goto(`/overlay?eventId=${EVENT_ID}&obs=1`, { waitUntil: 'networkidle' });
+  await expect(overlayPage.locator('.overlay-container')).toBeVisible();
+
+  const beforeOutageResponse = await request.post('/api/message', {
+    data: {
+      eventId: EVENT_ID,
+      text: 'Before outage',
+      senderName: 'Reconnect Test',
+    },
+  });
+  expect(beforeOutageResponse.ok()).toBeTruthy();
+
+  await expect
+    .poll(async () => (await overlayPage.locator('.overlay-container').innerHTML()).trim(), {
+      timeout: 6000,
+    })
+    .toContain('Before outage');
+
+  outageEnabled = true;
+
+  const duringOutageOne = await request.post('/api/message', {
+    data: {
+      eventId: EVENT_ID,
+      text: 'During outage 1',
+      senderName: 'Reconnect Test',
+    },
+  });
+  expect(duringOutageOne.ok()).toBeTruthy();
+
+  const duringOutageTwo = await request.post('/api/message', {
+    data: {
+      eventId: EVENT_ID,
+      text: 'During outage 2',
+      senderName: 'Reconnect Test',
+    },
+  });
+  expect(duringOutageTwo.ok()).toBeTruthy();
+
+  await expect.poll(() => outageHits, { timeout: 4000 }).toBeGreaterThan(0);
+  const duringOutageMarkup = await overlayPage.locator('.overlay-container').innerHTML();
+  expect(duringOutageMarkup).toContain('Before outage');
+  expect(duringOutageMarkup).not.toContain('During outage 1');
+  expect(duringOutageMarkup).not.toContain('During outage 2');
+
+  outageEnabled = false;
+
+  await expect
+    .poll(async () => (await overlayPage.locator('.overlay-container').innerHTML()).trim(), {
+      timeout: 8000,
+    })
+    .toContain('During outage 1');
+
+  await overlayPage.waitForTimeout(900);
+  expect(await overlayPage.locator('.overlay-container').innerHTML()).not.toContain('During outage 2');
+
+  await expect
+    .poll(async () => (await overlayPage.locator('.overlay-container').innerHTML()).trim(), {
+      timeout: 5000,
+    })
+    .toContain('During outage 2');
+
+  await assertCleanAudits(adminAudit);
+  expect(
+    overlayAudit.consoleErrors.filter(
+      (message) => !message.includes('503 (Service Unavailable)'),
+    ),
+  ).toEqual([]);
+  expect(overlayAudit.consoleWarnings).toEqual([]);
+  expect(overlayAudit.pageErrors).toEqual([]);
+  expect(overlayAudit.requestFailures).toEqual([]);
+  await adminContext.close();
+  await overlayContext.close();
 });
 
 test('@polish security, API health, and deprecated routes respond safely', async ({ request, page }) => {

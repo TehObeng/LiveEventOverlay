@@ -100,6 +100,11 @@ export interface PublicApprovedMessage {
   approved_at: string | null;
 }
 
+export interface MessageCursor {
+  approvedAt: string;
+  id: string;
+}
+
 export interface AdminSessionData {
   userId: string;
   email: string | null;
@@ -206,6 +211,7 @@ export interface PublicEventResponse {
 
 export interface PublicMessagesResponse {
   messages: PublicApprovedMessage[];
-  nextSince: string | null;
+  nextCursor: MessageCursor | null;
+  nextSince?: string | null;
   clearedAt: string | null;
 }

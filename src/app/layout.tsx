@@ -29,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className={`${inter.variable} ${outfit.variable}`}>
+    <html lang="id" data-scroll-behavior="smooth" className={`${inter.variable} ${outfit.variable}`}>
       <body>{children}</body>
     </html>
   );
