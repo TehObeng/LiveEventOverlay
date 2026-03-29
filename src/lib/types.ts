@@ -212,5 +212,6 @@ export interface PublicEventResponse {
 export interface PublicMessagesResponse {
   messages: PublicApprovedMessage[];
   nextCursor: MessageCursor | null;
+  nextSince?: string | null;
   clearedAt: string | null;
 }

@@ -6,6 +6,7 @@ import {
   isMessageAfterCursor,
   parseMessageCursorInput,
 } from '../src/lib/public-message-cursor.ts';
+import { fetchPublicMessages } from '../src/lib/public-api.ts';
 
 test('isMessageAfterCursor uses id as a tie breaker when approved_at matches', () => {
   const cursor = { approvedAt: '2026-03-29T10:00:00.000Z', id: 'message-b' };
@@ -52,4 +53,29 @@ test('buildMessageCursorQuery serializes both cursor fields when present', () =>
 
 test('parseMessageCursorInput accepts empty values and returns null', () => {
   assert.equal(parseMessageCursorInput(null, null), null);
+});
+
+test('fetchPublicMessages sends both cursor params to the public messages route', async () => {
+  let requestedUrl = '';
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(
+      JSON.stringify({ messages: [], nextCursor: null, clearedAt: null }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
+
+  try {
+    await fetchPublicMessages('event-1', {
+      approvedAt: '2026-03-29T10:00:00.000Z',
+      id: 'message-c',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.match(requestedUrl, /sinceApprovedAt=2026-03-29T10%3A00%3A00.000Z/);
+  assert.match(requestedUrl, /sinceId=message-c/);
 });

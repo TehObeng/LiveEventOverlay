@@ -51,6 +51,7 @@ export interface QueryBuilderLike extends PromiseLike<QueryResultLike> {
   delete(): QueryBuilderLike;
   eq(column: string, value: unknown): QueryBuilderLike;
   in(column: string, value: unknown[]): QueryBuilderLike;
+  gte(column: string, value: unknown): QueryBuilderLike;
   gt(column: string, value: unknown): QueryBuilderLike;
   order(column: string, options?: { ascending?: boolean }): QueryBuilderLike;
   limit(value: number): QueryBuilderLike;
