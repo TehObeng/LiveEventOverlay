@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { buildAllowedDevOrigins } from './src/lib/dev-origins';
 
 const baseHeaders = [
   {
@@ -20,6 +21,10 @@ const baseHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: buildAllowedDevOrigins({
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    ALLOWED_DEV_ORIGINS: process.env.ALLOWED_DEV_ORIGINS,
+  }),
   async headers() {
     return [
       {
