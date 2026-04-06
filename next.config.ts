@@ -24,6 +24,12 @@ const basePath = resolveBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
 
 const nextConfig: NextConfig = {
   basePath,
+  env: {
+    E2E_EVENT_NAME: process.env.E2E_EVENT_NAME,
+    E2E_ADMIN_EMAIL: process.env.E2E_ADMIN_EMAIL,
+    E2E_ADMIN_PASSWORD: process.env.E2E_ADMIN_PASSWORD,
+    E2E_USE_MOCK_BACKEND: process.env.E2E_USE_MOCK_BACKEND,
+  },
   async headers() {
     return [
       {
