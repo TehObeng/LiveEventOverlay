@@ -2,25 +2,22 @@
   command = "npm run build"
   publish = ".next"
 
+[build.environment]
+  NEXT_PUBLIC_BASE_PATH = "/liveeventoverlay"
+  NEXT_PUBLIC_APP_URL = "https://eventdanel.site/liveeventoverlay"
+  NEXT_PUBLIC_E2E_MOCK_BACKEND = "1"
+  E2E_USE_MOCK_BACKEND = "1"
+  E2E_EVENT_NAME = "Live Event Overlay Demo"
+  E2E_ADMIN_EMAIL = "smdanel321@gmail.com"
+  E2E_ADMIN_PASSWORD = "kanzen333E"
+
 [[headers]]
-  for = "/liveeventoverlay/_next/static/*"
+  for = "/_next/static/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
 [[redirects]]
-  from = "/liveeventoverlay"
-  to = "/Liveeventoverlay"
-  status = 301
-  force = true
-
-[[redirects]]
-  from = "/liveeventoverlay/*"
-  to = "/Liveeventoverlay/:splat"
-  status = 301
-  force = true
-
-[[redirects]]
-  from = "/liveeventoverlay/_next/image"
+  from = "/_next/image"
   to = "/.netlify/images?url=:url&w=:width&q=:quality"
   status = 200
 

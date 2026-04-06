@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { requireAdminUser } from '@/lib/admin-auth';
-import { isE2EMockModeEnabled } from '@/lib/e2e-config';
+import { isE2EMockModeEnabled, MOCK_SESSION_COOKIE } from '@/lib/e2e-config';
 import {
   clearMockSessionResponse,
   createMockSessionResponse,
@@ -53,7 +54,8 @@ export async function DELETE() {
     return NextResponse.json({ success: true });
   }
 
-  return clearMockSessionResponse({
+  const cookieStore = await cookies();
+  return clearMockSessionResponse(cookieStore.get(MOCK_SESSION_COOKIE)?.value, {
     success: true,
   });
 }

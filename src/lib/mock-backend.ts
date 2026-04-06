@@ -1,9 +1,12 @@
 import 'server-only';
 
 import crypto from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { DEFAULT_OVERLAY_CONFIG, EventData, Message, SiteContent } from '@/lib/types';
 import {
+  DEFAULT_E2E_ADMIN_PASSWORD,
   getE2EAdminEmail,
   getE2EAdminPassword,
   getE2EEventId,
@@ -14,7 +17,8 @@ import { normalizeOverlayConfig } from '@/lib/public';
 import { ServiceRoleSupabaseClientLike } from '@/lib/supabase-like';
 
 const MOCK_ADMIN_ID = '00000000-0000-4000-8000-000000000001';
-const MOCK_SESSION_VALUE = 'codex-e2e-admin';
+const STORE_FILE_PATH = path.join(process.cwd(), 'data', 'local-db.json');
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 type TableName = 'events' | 'messages' | 'admin_users' | 'site_content';
 type MockResult = {
@@ -25,7 +29,18 @@ type MockResult = {
 type MockDatabaseState = {
   events: EventData[];
   messages: Message[];
-  admin_users: Array<{ user_id: string; is_active: boolean; role: 'admin' }>;
+  admin_users: Array<{
+    user_id: string;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    role: 'admin';
+  }>;
+  sessions: Array<{
+    token: string;
+    user_id: string;
+    expires_at: string;
+  }>;
   site_content: Array<{ key: string; content: SiteContent; updated_by: string | null }>;
 };
 
@@ -43,8 +58,103 @@ declare global {
   var __LIVE_CHAT_MOCK_DB__: MockDatabaseState | undefined;
 }
 
+function createSessionSigningSecret() {
+  return (
+    process.env.MOCK_SESSION_SECRET ||
+    process.env.LOCAL_ADMIN_PASSWORD ||
+    process.env.E2E_ADMIN_PASSWORD ||
+    DEFAULT_E2E_ADMIN_PASSWORD
+  );
+}
+
+function encodeBase64Url(value: string) {
+  return Buffer.from(value, 'utf8').toString('base64url');
+}
+
+function decodeBase64Url(value: string) {
+  return Buffer.from(value, 'base64url').toString('utf8');
+}
+
+function signSessionPayload(payload: string) {
+  return crypto.createHmac('sha256', createSessionSigningSecret()).update(payload).digest('base64url');
+}
+
+function createSignedSessionCookie(user: { userId: string; email: string | null }) {
+  const payload = encodeBase64Url(
+    JSON.stringify({
+      userId: user.userId,
+      email: user.email,
+      expiresAt: Date.now() + SESSION_TTL_MS,
+    }),
+  );
+
+  return `${payload}.${signSessionPayload(payload)}`;
+}
+
+function readSignedSessionCookie(cookieValue: string) {
+  const [payload, signature] = cookieValue.split('.');
+  if (!payload || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signSessionPayload(payload);
+  const actual = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(decodeBase64Url(payload)) as {
+      userId?: string;
+      email?: string | null;
+      expiresAt?: number;
+    };
+
+    if (
+      typeof parsed.userId !== 'string' ||
+      (typeof parsed.email !== 'string' && parsed.email !== null && typeof parsed.email !== 'undefined') ||
+      typeof parsed.expiresAt !== 'number' ||
+      parsed.expiresAt <= Date.now()
+    ) {
+      return null;
+    }
+
+    return {
+      id: parsed.userId,
+      email: parsed.email ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function cloneValue<T>(value: T): T {
   return structuredClone(value);
+}
+
+function createPasswordHash(password: string) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, passwordHash: string) {
+  const [salt, storedHash] = passwordHash.split(':');
+
+  if (!salt || !storedHash) {
+    return false;
+  }
+
+  const candidate = crypto.scryptSync(password, salt, 64);
+  const stored = Buffer.from(storedHash, 'hex');
+
+  if (candidate.length !== stored.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(candidate, stored);
 }
 
 function buildInitialState(): MockDatabaseState {
@@ -101,14 +211,121 @@ function buildInitialState(): MockDatabaseState {
   return {
     events: [event],
     messages,
-    admin_users: [{ user_id: MOCK_ADMIN_ID, is_active: true, role: 'admin' }],
+    admin_users: [
+      {
+        user_id: MOCK_ADMIN_ID,
+        email: getE2EAdminEmail(),
+        password_hash: createPasswordHash(getE2EAdminPassword()),
+        is_active: true,
+        role: 'admin',
+      },
+    ],
+    sessions: [],
     site_content: [],
   };
 }
 
+function persistState(state: MockDatabaseState) {
+  globalThis.__LIVE_CHAT_MOCK_DB__ = state;
+
+  try {
+    mkdirSync(path.dirname(STORE_FILE_PATH), { recursive: true });
+    writeFileSync(STORE_FILE_PATH, JSON.stringify(state, null, 2), 'utf8');
+  } catch (error) {
+    console.warn('Mock database persistence unavailable, falling back to in-memory state.', error);
+  }
+}
+
+function loadStateFromDisk() {
+  if (!existsSync(STORE_FILE_PATH)) {
+    const state = buildInitialState();
+    persistState(state);
+    return state;
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(STORE_FILE_PATH, 'utf8')) as Partial<MockDatabaseState>;
+    const state = buildInitialState();
+
+    if (Array.isArray(raw.events)) {
+      state.events = raw.events;
+    }
+
+    if (Array.isArray(raw.messages)) {
+      state.messages = raw.messages;
+    }
+
+    if (Array.isArray(raw.site_content)) {
+      state.site_content = raw.site_content;
+    }
+
+    if (Array.isArray(raw.admin_users)) {
+      state.admin_users = raw.admin_users
+        .map((admin) => {
+          if (
+            !admin ||
+            typeof admin.user_id !== 'string' ||
+            typeof admin.email !== 'string' ||
+            typeof admin.password_hash !== 'string'
+          ) {
+            return null;
+          }
+
+          return {
+            user_id: admin.user_id,
+            email: admin.email,
+            password_hash: admin.password_hash,
+            is_active: admin.is_active !== false,
+            role: admin.role === 'admin' ? 'admin' : 'admin',
+          };
+        })
+        .filter(
+          (
+            admin,
+          ): admin is {
+            user_id: string;
+            email: string;
+            password_hash: string;
+            is_active: boolean;
+            role: 'admin';
+          } => admin !== null,
+        );
+    }
+
+    if (!state.admin_users.some((admin) => admin.email.toLowerCase() === getE2EAdminEmail().toLowerCase())) {
+      state.admin_users.push({
+        user_id: crypto.randomUUID(),
+        email: getE2EAdminEmail(),
+        password_hash: createPasswordHash(getE2EAdminPassword()),
+        is_active: true,
+        role: 'admin',
+      });
+    }
+
+    if (Array.isArray(raw.sessions)) {
+      state.sessions = raw.sessions.filter((session) => {
+        return (
+          session &&
+          typeof session.token === 'string' &&
+          typeof session.user_id === 'string' &&
+          typeof session.expires_at === 'string' &&
+          Date.parse(session.expires_at) > Date.now()
+        );
+      });
+    }
+
+    persistState(state);
+    return state;
+  } catch {
+    const state = buildInitialState();
+    persistState(state);
+    return state;
+  }
+}
+
 function getState() {
   if (!globalThis.__LIVE_CHAT_MOCK_DB__) {
-    globalThis.__LIVE_CHAT_MOCK_DB__ = buildInitialState();
+    globalThis.__LIVE_CHAT_MOCK_DB__ = loadStateFromDisk();
   }
 
   return globalThis.__LIVE_CHAT_MOCK_DB__;
@@ -116,6 +333,7 @@ function getState() {
 
 export function resetMockDatabase() {
   globalThis.__LIVE_CHAT_MOCK_DB__ = buildInitialState();
+  persistState(globalThis.__LIVE_CHAT_MOCK_DB__);
   return cloneValue(globalThis.__LIVE_CHAT_MOCK_DB__);
 }
 
@@ -289,17 +507,21 @@ class MockQueryBuilder implements PromiseLike<MockResult> {
     const state = getState();
     if (this.table === 'events') {
       state.events = nextRows as EventData[];
+      persistState(state);
       return;
     }
     if (this.table === 'messages') {
       state.messages = nextRows as Message[];
+      persistState(state);
       return;
     }
     if (this.table === 'admin_users') {
       state.admin_users = nextRows as MockDatabaseState['admin_users'];
+      persistState(state);
       return;
     }
     state.site_content = nextRows as MockDatabaseState['site_content'];
+    persistState(state);
   }
 
   private executeSelect() {
@@ -493,14 +715,11 @@ export function createMockServiceRoleClient(): ServiceRoleSupabaseClientLike {
 }
 
 export function getMockAdminUserFromCookie(cookieValue: string | null | undefined) {
-  if (cookieValue !== MOCK_SESSION_VALUE) {
+  if (!cookieValue) {
     return null;
   }
 
-  return {
-    id: MOCK_ADMIN_ID,
-    email: getE2EAdminEmail(),
-  };
+  return readSignedSessionCookie(cookieValue);
 }
 
 function createAuthCookieOptions() {
@@ -509,6 +728,7 @@ function createAuthCookieOptions() {
     path: '/',
     sameSite: 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
+    maxAge: SESSION_TTL_MS / 1000,
   };
 }
 
@@ -517,19 +737,39 @@ export function createMockSessionResponse(
   init?: ResponseInit,
 ) {
   const response = NextResponse.json(payload, init);
-  response.cookies.set(MOCK_SESSION_COOKIE, MOCK_SESSION_VALUE, createAuthCookieOptions());
+  const user = payload.user as { userId?: string; email?: string | null } | undefined;
+
+  if (typeof user?.userId === 'string') {
+    response.cookies.set(
+      MOCK_SESSION_COOKIE,
+      createSignedSessionCookie({
+        userId: user.userId,
+        email: user.email ?? null,
+      }),
+      createAuthCookieOptions(),
+    );
+  }
+
   return response;
 }
 
-export function clearMockSessionResponse(payload: Record<string, unknown>) {
+export function clearMockSessionResponse(cookieValue: string | undefined, payload: Record<string, unknown>) {
   const response = NextResponse.json(payload);
   response.cookies.set(MOCK_SESSION_COOKIE, '', {
     ...createAuthCookieOptions(),
     expires: new Date(0),
+    maxAge: 0,
   });
   return response;
 }
 
 export function validateMockLogin(email: string, password: string) {
-  return email === getE2EAdminEmail() && password === getE2EAdminPassword();
+  const normalizedEmail = email.trim().toLowerCase();
+  const admin = getState().admin_users.find((item) => item.email.toLowerCase() === normalizedEmail && item.is_active);
+
+  if (!admin) {
+    return false;
+  }
+
+  return verifyPassword(password, admin.password_hash);
 }

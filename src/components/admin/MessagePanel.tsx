@@ -8,6 +8,7 @@ interface MessagePanelProps {
   loading: boolean;
   editingId: string | null;
   editText: string;
+  pendingAction: string | null;
   onTabChange: (tab: 'pending' | 'approved' | 'rejected') => void;
   onEditTextChange: (value: string) => void;
   onStartEdit: (message: Message) => void;
@@ -31,6 +32,7 @@ export function MessagePanel({
   loading,
   editingId,
   editText,
+  pendingAction,
   onTabChange,
   onEditTextChange,
   onStartEdit,
@@ -51,6 +53,8 @@ export function MessagePanel({
   const pendingCount = messages.filter((message) => message.status === 'pending').length;
   const approvedCount = messages.filter((message) => message.status === 'approved').length;
   const rejectedCount = messages.filter((message) => message.status === 'rejected').length;
+  const isBusy = (action: string) => pendingAction === action;
+  const hasPendingAction = Boolean(pendingAction);
 
   return (
     <div className="admin-main">
@@ -70,13 +74,13 @@ export function MessagePanel({
       </div>
 
       <div className="tabs">
-        <button className={`tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => onTabChange('pending')}>
+        <button className={`tab ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => onTabChange('pending')} disabled={hasPendingAction}>
           Menunggu ({pendingCount})
         </button>
-        <button className={`tab ${activeTab === 'approved' ? 'active' : ''}`} onClick={() => onTabChange('approved')}>
+        <button className={`tab ${activeTab === 'approved' ? 'active' : ''}`} onClick={() => onTabChange('approved')} disabled={hasPendingAction}>
           Disetujui ({approvedCount})
         </button>
-        <button className={`tab ${activeTab === 'rejected' ? 'active' : ''}`} onClick={() => onTabChange('rejected')}>
+        <button className={`tab ${activeTab === 'rejected' ? 'active' : ''}`} onClick={() => onTabChange('rejected')} disabled={hasPendingAction}>
           Ditolak ({rejectedCount})
         </button>
       </div>
@@ -135,10 +139,12 @@ export function MessagePanel({
 
               {editingId === message.id ? (
                 <div className="flex flex-col gap-sm">
-                  <textarea className="edit-textarea" value={editText} onChange={(event) => onEditTextChange(event.target.value)} />
+                  <textarea className="edit-textarea" value={editText} onChange={(event) => onEditTextChange(event.target.value)} disabled={hasPendingAction} />
                   <div className="flex gap-sm">
-                    <button className="btn btn-success btn-sm" onClick={() => onSaveEdit(message.id)}>Simpan</button>
-                    <button className="btn btn-ghost btn-sm" onClick={onCancelEdit}>Batal</button>
+                    <button className="btn btn-success btn-sm" onClick={() => onSaveEdit(message.id)} disabled={hasPendingAction}>
+                      {isBusy(`save-edit:${message.id}`) ? 'Menyimpan...' : 'Simpan'}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={onCancelEdit} disabled={hasPendingAction}>Batal</button>
                   </div>
                 </div>
               ) : (
@@ -148,15 +154,21 @@ export function MessagePanel({
               <div className="message-actions">
                 {message.status === 'pending' && (
                   <>
-                    <button className="btn btn-success btn-sm" onClick={() => onApprove(message.id)}>✅ Setujui</button>
-                    <button className="btn btn-danger btn-sm" onClick={() => onReject(message.id)}>❌ Tolak</button>
+                    <button className="btn btn-success btn-sm" onClick={() => onApprove(message.id)} disabled={hasPendingAction}>
+                      {isBusy(`approve:${message.id}`) ? 'Menyetujui...' : '✅ Setujui'}
+                    </button>
+                    <button className="btn btn-danger btn-sm" onClick={() => onReject(message.id)} disabled={hasPendingAction}>
+                      {isBusy(`reject:${message.id}`) ? 'Menolak...' : '❌ Tolak'}
+                    </button>
                   </>
                 )}
-                <button className="btn btn-ghost btn-sm" onClick={() => onStartEdit(message)}>✏️</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => onDelete(message.id)} style={{ color: 'var(--accent-danger)' }}>🗑️</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => onStartEdit(message)} disabled={hasPendingAction}>✏️</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => onDelete(message.id)} style={{ color: 'var(--accent-danger)' }} disabled={hasPendingAction}>
+                  {isBusy(`delete:${message.id}`) ? 'Menghapus...' : '🗑️'}
+                </button>
                 {message.ip_hash && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => onBan(message.ip_hash || '')} style={{ color: 'var(--accent-danger)' }}>
-                    🚫 Ban
+                  <button className="btn btn-ghost btn-sm" onClick={() => onBan(message.ip_hash || '')} style={{ color: 'var(--accent-danger)' }} disabled={hasPendingAction}>
+                    {isBusy(`ban:${message.ip_hash}`) ? 'Mem-ban...' : '🚫 Ban'}
                   </button>
                 )}
               </div>
@@ -168,18 +180,26 @@ export function MessagePanel({
       <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
         {activeTab === 'pending' && pendingCount > 0 && (
           <>
-            <button className="btn btn-success btn-sm" onClick={onBulkApprove}>✅ Setujui Semua ({pendingCount})</button>
-            <button className="btn btn-danger btn-sm" onClick={onBulkReject}>❌ Tolak Semua ({pendingCount})</button>
+            <button className="btn btn-success btn-sm" onClick={onBulkApprove} disabled={hasPendingAction}>
+              {isBusy('bulk-approve') ? 'Menyetujui...' : `✅ Setujui Semua (${pendingCount})`}
+            </button>
+            <button className="btn btn-danger btn-sm" onClick={onBulkReject} disabled={hasPendingAction}>
+              {isBusy('bulk-reject') ? 'Menolak...' : `❌ Tolak Semua (${pendingCount})`}
+            </button>
           </>
         )}
         {filteredMessages.length > 0 && (
-          <button className="btn btn-danger btn-sm" onClick={onBulkDelete}>
-            🗑️ Hapus Semua {activeTab} ({filteredMessages.length})
+          <button className="btn btn-danger btn-sm" onClick={onBulkDelete} disabled={hasPendingAction}>
+            {isBusy('bulk-delete') ? 'Menghapus...' : `🗑️ Hapus Semua ${activeTab} (${filteredMessages.length})`}
           </button>
         )}
-        <button className="btn btn-primary btn-sm" onClick={onSendTestMessage} id="test-msg-btn">🧪 Kirim Test</button>
-        <button className="btn btn-danger btn-sm" onClick={onClearScreen}>🧹 Bersihkan Layar</button>
-        <button className="btn btn-ghost btn-sm" onClick={onExportCsv}>📥 Export CSV</button>
+        <button className="btn btn-primary btn-sm" onClick={onSendTestMessage} id="test-msg-btn" disabled={hasPendingAction}>
+          {isBusy('send-test') ? 'Mengirim...' : '🧪 Kirim Test'}
+        </button>
+        <button className="btn btn-danger btn-sm" onClick={onClearScreen} disabled={hasPendingAction}>
+          {isBusy('clear-screen') ? 'Membersihkan...' : '🧹 Bersihkan Layar'}
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onExportCsv} disabled={hasPendingAction}>📥 Export CSV</button>
       </div>
     </div>
   );

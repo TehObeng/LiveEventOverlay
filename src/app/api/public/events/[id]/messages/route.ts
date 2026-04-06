@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Message } from '@/lib/types';
 import { isUuid, jsonError } from '@/lib/admin-auth';
+import {
+  encodePublicMessageCursor,
+  isMessageAfterCursor,
+  parsePublicMessageCursor,
+  sortApprovedMessagesByCursor,
+} from '@/lib/public-message-cursor';
 import { toPublicApprovedMessage } from '@/lib/public';
 import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
@@ -8,6 +14,8 @@ import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 function isValidIsoString(value: string) {
   return !Number.isNaN(new Date(value).getTime());
 }
+
+const PAGE_SIZE = 50;
 
 export async function GET(
   request: NextRequest,
@@ -20,35 +28,45 @@ export async function GET(
   }
 
   const since = request.nextUrl.searchParams.get('since');
-  if (since && !isValidIsoString(since)) {
+  const cursor = parsePublicMessageCursor(since);
+  if (since && !cursor && !isValidIsoString(since)) {
     return jsonError('Parameter since tidak valid');
   }
 
   try {
     const supabase = createServiceRoleSupabaseClient();
 
-    const [eventResult, messageResult] = await Promise.all([
+    const eventPromise = supabase
+      .from('events')
+      .select('*')
+      .eq('id', id)
+      .eq('is_active', true)
+      .single();
+
+    const createApprovedMessageQuery = () =>
       supabase
-        .from('events')
-        .select('*')
-        .eq('id', id)
-        .eq('is_active', true)
-        .single(),
-      (() => {
-        let query = supabase
-          .from('messages')
-          .select('id, text, sender_name, approved_at')
-          .eq('event_id', id)
-          .eq('status', 'approved')
-          .order('approved_at', { ascending: true })
-          .limit(50);
+        .from('messages')
+        .select('id, text, sender_name, approved_at')
+        .eq('event_id', id)
+        .eq('status', 'approved');
 
-        if (since) {
-          query = query.gt('approved_at', since);
-        }
+    const messagePromise = cursor
+      ? Promise.all([
+          createApprovedMessageQuery()
+            .eq('approved_at', cursor.approvedAt)
+            .order('id', { ascending: true }),
+          createApprovedMessageQuery()
+            .gt('approved_at', cursor.approvedAt)
+            .order('approved_at', { ascending: true })
+            .limit(PAGE_SIZE),
+        ])
+      : createApprovedMessageQuery()
+          .order('approved_at', { ascending: false })
+          .limit(PAGE_SIZE);
 
-        return query;
-      })(),
+    const [eventResult, rawMessageResult] = await Promise.all([
+      eventPromise,
+      messagePromise,
     ]);
 
     if (eventResult.error) {
@@ -65,13 +83,37 @@ export async function GET(
 
     const eventData = eventResult.data as { overlay_cleared_at?: string | null };
 
-    if (messageResult.error) {
-      return jsonError(messageResult.error.message, 500);
+    const collectedRows: Pick<Message, 'id' | 'text' | 'sender_name' | 'approved_at'>[] = [];
+
+    if (Array.isArray(rawMessageResult)) {
+      const [sameTimestampResult, newerMessagesResult] = rawMessageResult;
+
+      if (sameTimestampResult.error) {
+        return jsonError(sameTimestampResult.error.message, 500);
+      }
+
+      if (newerMessagesResult.error) {
+        return jsonError(newerMessagesResult.error.message, 500);
+      }
+
+      collectedRows.push(...((sameTimestampResult.data || []) as Pick<Message, 'id' | 'text' | 'sender_name' | 'approved_at'>[]));
+      collectedRows.push(...((newerMessagesResult.data || []) as Pick<Message, 'id' | 'text' | 'sender_name' | 'approved_at'>[]));
+    } else {
+      if (rawMessageResult.error) {
+        return jsonError(rawMessageResult.error.message, 500);
+      }
+
+      collectedRows.push(...((rawMessageResult.data || []) as Pick<Message, 'id' | 'text' | 'sender_name' | 'approved_at'>[]));
     }
 
-    const messages = ((messageResult.data || []) as Pick<Message, 'id' | 'text' | 'sender_name' | 'approved_at'>[])
-      .map(toPublicApprovedMessage);
-    const nextSince = messages.length > 0 ? messages[messages.length - 1].approved_at : since;
+    const sortedMessages = sortApprovedMessagesByCursor(collectedRows);
+    const pageRows = (cursor
+      ? sortedMessages.filter((message) => isMessageAfterCursor(message, cursor))
+      : sortedMessages
+    ).slice(0, PAGE_SIZE);
+
+    const messages = pageRows.map(toPublicApprovedMessage);
+    const nextSince = encodePublicMessageCursor(pageRows[pageRows.length - 1]) || since;
 
     return NextResponse.json({
       messages,

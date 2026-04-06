@@ -47,9 +47,12 @@ function OverlayContent() {
   const widthRef = useRef(1920);
   const heightRef = useRef(1080);
   const destroyedRef = useRef(false);
-  const sessionStartRef = useRef('');
   const sinceRef = useRef('');
   const clearedAtRef = useRef<string | null>(null);
+  const eventRequestIdRef = useRef(0);
+  const messageRequestIdRef = useRef(0);
+  const eventInFlightRef = useRef(false);
+  const messageInFlightRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.classList.add('overlay-mode');
@@ -401,7 +404,11 @@ function OverlayContent() {
 
   const queueApprovedMessages = useCallback((messages: PublicApprovedMessage[]) => {
     messages.forEach((message) => {
-      if (!message.approved_at || message.approved_at < sessionStartRef.current) {
+      if (!message.approved_at) {
+        return;
+      }
+
+      if (clearedAtRef.current && message.approved_at <= clearedAtRef.current) {
         return;
       }
 
@@ -426,26 +433,56 @@ function OverlayContent() {
   }, []);
 
   const loadEvent = useCallback(async (id: string) => {
+    if (eventInFlightRef.current) {
+      return;
+    }
+
+    eventInFlightRef.current = true;
+    const requestId = eventRequestIdRef.current + 1;
+    eventRequestIdRef.current = requestId;
+
     try {
       const event = await fetchPublicEvent(id);
+
+      if (destroyedRef.current || requestId !== eventRequestIdRef.current) {
+        return;
+      }
+
       applyConfig(event.overlay_config);
       setLoadError('');
 
-      if (event.overlay_cleared_at && event.overlay_cleared_at !== clearedAtRef.current) {
+      if (event.overlay_cleared_at !== clearedAtRef.current) {
         clearedAtRef.current = event.overlay_cleared_at;
-        sinceRef.current = event.overlay_cleared_at;
+        sinceRef.current = event.overlay_cleared_at || '';
         clearOverlayState(true);
       }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Gagal memuat overlay');
+      if (!destroyedRef.current && requestId === eventRequestIdRef.current) {
+        setLoadError(error instanceof Error ? error.message : 'Gagal memuat overlay');
+      }
     } finally {
-      setEventLoading(false);
+      eventInFlightRef.current = false;
+      if (!destroyedRef.current && requestId === eventRequestIdRef.current) {
+        setEventLoading(false);
+      }
     }
   }, [applyConfig, clearOverlayState]);
 
   const loadMessages = useCallback(async (id: string) => {
+    if (messageInFlightRef.current) {
+      return;
+    }
+
+    messageInFlightRef.current = true;
+    const requestId = messageRequestIdRef.current + 1;
+    messageRequestIdRef.current = requestId;
+
     try {
-      const response = await fetchPublicMessages(id, sinceRef.current || sessionStartRef.current);
+      const response = await fetchPublicMessages(id, sinceRef.current || undefined);
+
+      if (destroyedRef.current || requestId !== messageRequestIdRef.current) {
+        return;
+      }
 
       if (response.clearedAt && response.clearedAt !== clearedAtRef.current) {
         clearedAtRef.current = response.clearedAt;
@@ -459,6 +496,8 @@ function OverlayContent() {
       }
     } catch {
       // Ignore polling blips and keep trying on the next interval.
+    } finally {
+      messageInFlightRef.current = false;
     }
   }, [clearOverlayState, queueApprovedMessages]);
 
@@ -470,9 +509,14 @@ function OverlayContent() {
     }
 
     destroyedRef.current = false;
-    sessionStartRef.current = new Date().toISOString();
-    sinceRef.current = sessionStartRef.current;
+    setEventLoading(true);
+    setLoadError('');
+    sinceRef.current = '';
     clearedAtRef.current = null;
+    eventRequestIdRef.current = 0;
+    messageRequestIdRef.current = 0;
+    eventInFlightRef.current = false;
+    messageInFlightRef.current = false;
     updateDimensions();
     lanesRef.current = createOverlayLaneState(configRef.current.laneCount);
     clearOverlayState(true);
@@ -511,8 +555,8 @@ function OverlayContent() {
     return (
       <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#1a1a2e,#16213e)', color: '#fff', fontFamily: 'Arial,sans-serif', fontSize: 24, textAlign: 'center', padding: 40 }}>
         <div style={{ fontSize: 48, marginBottom: 20 }}>🎬</div>
-        <div>No eventId provided</div>
-        <div style={{ fontSize: 16, opacity: 0.7, marginTop: 10 }}>Add <code style={{ background: 'rgba(255,255,255,.1)', padding: '4px 8px', borderRadius: 4 }}>?eventId=YOUR_EVENT_ID</code></div>
+        <div>Parameter eventId belum diberikan</div>
+        <div style={{ fontSize: 16, opacity: 0.7, marginTop: 10 }}>Tambahkan <code style={{ background: 'rgba(255,255,255,.1)', padding: '4px 8px', borderRadius: 4 }}>?eventId=ID_EVENT</code> pada URL overlay.</div>
       </div>
     );
   }

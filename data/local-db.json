@@ -1,0 +1,133 @@
+{
+  "events": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Live Event Overlay Demo",
+      "date": "2026-04-07T05:10:29.262Z",
+      "max_chars": 160,
+      "cooldown_seconds": 3,
+      "overlay_config": {
+        "fontSize": 48,
+        "color": "#FFFFFF",
+        "speed": 135,
+        "stroke": "#000000",
+        "strokeWidth": 2,
+        "shadow": true,
+        "opacity": 1,
+        "fontFamily": "Outfit",
+        "laneCount": 4,
+        "spawnInterval": 2000,
+        "maxMessages": 12,
+        "maxLifetime": 15,
+        "scrollDirection": "rtl",
+        "scrollType": "danmaku",
+        "gapHorizontal": 80,
+        "gapVertical": 10,
+        "bgColor": "#000000",
+        "bgOpacity": 0,
+        "speedVariance": 0.3
+      },
+      "auto_approve": false,
+      "is_active": true,
+      "created_at": "2026-04-06T05:10:29.262Z",
+      "overlay_cleared_at": "2026-04-06T05:10:43.355Z"
+    },
+    {
+      "id": "3ff94b60-43e7-4fce-b291-48fa6a6f9416",
+      "name": "Playwright Launch Room",
+      "date": "2026-04-06T05:10:45.229Z",
+      "max_chars": 100,
+      "cooldown_seconds": 10,
+      "overlay_config": {
+        "fontSize": 48,
+        "color": "#FFFFFF",
+        "speed": 120,
+        "stroke": "#000000",
+        "strokeWidth": 2,
+        "shadow": true,
+        "opacity": 1,
+        "fontFamily": "Arial",
+        "laneCount": 4,
+        "spawnInterval": 2000,
+        "maxMessages": 10,
+        "maxLifetime": 15,
+        "scrollDirection": "rtl",
+        "scrollType": "danmaku",
+        "gapHorizontal": 80,
+        "gapVertical": 10,
+        "bgColor": "#000000",
+        "bgOpacity": 0,
+        "speedVariance": 0.3
+      },
+      "auto_approve": true,
+      "is_active": true,
+      "created_at": "2026-04-06T05:10:45.230Z",
+      "overlay_cleared_at": null
+    }
+  ],
+  "messages": [
+    {
+      "id": "22222222-2222-4222-8222-222222222221",
+      "event_id": "11111111-1111-4111-8111-111111111111",
+      "text": "Selamat datang di mode uji otomatis.",
+      "sender_name": "Codex",
+      "status": "approved",
+      "risk_level": "safe",
+      "ip_hash": "seed-approved",
+      "is_banned": false,
+      "created_at": "2026-04-06T05:08:29.262Z",
+      "approved_at": "2026-04-06T05:08:59.262Z",
+      "approved_by": "auto"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "event_id": "11111111-1111-4111-8111-111111111111",
+      "text": "Pesan ini menunggu moderasi.",
+      "sender_name": "Moderator",
+      "status": "pending",
+      "risk_level": "risky",
+      "ip_hash": "seed-pending",
+      "is_banned": false,
+      "created_at": "2026-04-06T05:09:59.262Z",
+      "approved_at": null,
+      "approved_by": null
+    },
+    {
+      "id": "584dd2bf-a1e4-4908-9c88-1a9cb13650c4",
+      "event_id": "11111111-1111-4111-8111-111111111111",
+      "text": "Pesan pending untuk moderasi",
+      "sender_name": "Playwright User",
+      "status": "approved",
+      "risk_level": "safe",
+      "ip_hash": "12ca17b49af22894",
+      "is_banned": false,
+      "created_at": "2026-04-06T05:10:36.093Z",
+      "approved_at": "2026-04-06T05:10:38.947Z",
+      "approved_by": "smdanel321@gmail.com"
+    },
+    {
+      "id": "515b90f0-d74c-415d-93ad-0aef6f2da55a",
+      "event_id": "11111111-1111-4111-8111-111111111111",
+      "text": "Mantap! 💪",
+      "sender_name": "Admin Test",
+      "status": "approved",
+      "risk_level": "safe",
+      "ip_hash": "admin-test",
+      "is_banned": false,
+      "created_at": "2026-04-06T05:10:40.437Z",
+      "approved_at": "2026-04-06T05:10:40.437Z",
+      "approved_by": "smdanel321@gmail.com"
+    }
+  ],
+  "admin_users": [
+    {
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "email": "smdanel321@gmail.com",
+      "password_hash": "64012cf7e1457567863d8aaa0a06aac3:c44f64246648e3d9144ed3d0e5444b6d13102d6b99d823ef703eba6ed45b055e6d2ee3898051fc4b57b45f67e6793207bd0a80aa453fdf559e83152a3f1f9e51",
+      "is_active": true,
+      "role": "admin"
+    }
+  ],
+  "sessions": [],
+  "site_content": []
+}
