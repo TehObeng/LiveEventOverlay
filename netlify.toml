@@ -8,6 +8,18 @@
     Cache-Control = "public, max-age=31536000, immutable"
 
 [[redirects]]
+  from = "/liveeventoverlay"
+  to = "/Liveeventoverlay"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/liveeventoverlay/*"
+  to = "/Liveeventoverlay/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
   from = "/liveeventoverlay/_next/image"
   to = "/.netlify/images?url=:url&w=:width&q=:quality"
   status = 200
@@ -15,9 +27,4 @@
 [[redirects]]
   from = "/_ipx/*"
   to = "/.netlify/images?url=:url&w=:width&q=:quality"
-  status = 200
-
-[[redirects]]
-  from = "/liveeventoverlay/*"
-  to = "/liveeventoverlay/:splat"
   status = 200
