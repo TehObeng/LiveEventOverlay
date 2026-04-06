@@ -1,3 +1,5 @@
+import { resolveBasePath, withBasePath } from './url';
+
 export class ApiRequestError extends Error {
   status: number;
   payload: unknown;
@@ -10,6 +12,14 @@ export class ApiRequestError extends Error {
   }
 }
 
+function withResolvedBasePath(input: RequestInfo | URL) {
+  if (typeof input !== 'string' || !input.startsWith('/')) {
+    return input;
+  }
+
+  return withBasePath(input, resolveBasePath(process.env.NEXT_PUBLIC_BASE_PATH));
+}
+
 export async function requestJson<T>(input: RequestInfo | URL, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
 
@@ -17,7 +27,7 @@ export async function requestJson<T>(input: RequestInfo | URL, init: RequestInit
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(input, {
+  const response = await fetch(withResolvedBasePath(input), {
     ...init,
     credentials: 'same-origin',
     headers,

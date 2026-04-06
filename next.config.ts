@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { resolveBasePath } from './src/lib/url';
 
 const baseHeaders = [
   {
@@ -19,7 +20,10 @@ const baseHeaders = [
   },
 ];
 
+const basePath = resolveBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
+
 const nextConfig: NextConfig = {
+  basePath,
   async headers() {
     return [
       {

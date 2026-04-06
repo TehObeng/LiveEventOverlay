@@ -1,5 +1,6 @@
 'use client';
 
+import { withBasePath } from '@/lib/url';
 import { BrowserSupabaseClientLike, BrowserUserLike, BrowserSessionLike } from '@/lib/supabase-like';
 
 type AuthChangeEvent = 'SIGNED_IN' | 'SIGNED_OUT';
@@ -10,7 +11,7 @@ const listeners = new Set<AuthListener>();
 const MOCK_BROWSER_SESSION_KEY = 'live-chat-mock-admin-user';
 
 async function readJson(path: string, init?: RequestInit) {
-  const response = await fetch(path, {
+  const response = await fetch(withBasePath(path), {
     ...init,
     credentials: 'same-origin',
     headers: {
