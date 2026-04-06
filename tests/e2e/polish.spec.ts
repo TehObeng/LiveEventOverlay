@@ -233,10 +233,9 @@ test('@polish admin moderation and overlay playback work in a real controlled br
   const autoApproveToggle = page.locator('#auto-approve-toggle');
   if (await autoApproveToggle.isChecked()) {
     await autoApproveToggle.uncheck();
+    await page.locator('#save-config-btn').click();
+    await expect(page.getByText(/Pengaturan tersimpan/i)).toBeVisible();
   }
-
-  await page.locator('#save-config-btn').click();
-  await expect(page.getByText(/Pengaturan tersimpan/i)).toBeVisible();
 
   await publicPage.goto(withAppPath(`/chat?eventId=${EVENT_ID}`), { waitUntil: 'networkidle' });
   await publicPage.getByLabel('Nama kamu').fill('Playwright User');
