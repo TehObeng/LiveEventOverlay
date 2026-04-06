@@ -7,10 +7,12 @@ const { loadEnvConfig } = nextEnv;
 const projectDir = process.cwd();
 loadEnvConfig(projectDir);
 
-const baseURL =
+const appBaseURL =
   process.env.PLAYWRIGHT_BASE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
   'http://127.0.0.1:3000';
+
+const baseURL = appBaseURL.replace(/\/$/, '');
 
 const webServerCommand =
   process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ||
@@ -65,13 +67,13 @@ export default defineConfig({
   webServer: shouldUseWebServer
     ? {
         command: webServerCommand,
-        url: baseURL,
+        url: appBaseURL,
         reuseExistingServer: !process.env.CI,
         stdout: 'pipe',
         stderr: 'pipe',
         env: {
           ...process.env,
-          NEXT_PUBLIC_APP_URL: baseURL,
+          NEXT_PUBLIC_APP_URL: appBaseURL,
           NEXT_PUBLIC_E2E_MOCK_BACKEND: process.env.NEXT_PUBLIC_E2E_MOCK_BACKEND || '1',
           E2E_USE_MOCK_BACKEND: process.env.E2E_USE_MOCK_BACKEND || '1',
           PLAYWRIGHT: '1',

@@ -16,6 +16,9 @@ interface AdminSidebarProps {
   setOverlayConfig: Dispatch<SetStateAction<OverlayConfig>>;
   autoApprove: boolean;
   setAutoApprove: Dispatch<SetStateAction<boolean>>;
+  hasUnsavedChanges: boolean;
+  isSaving: boolean;
+  onResetConfig: () => void;
   onSaveConfig: () => void;
 }
 
@@ -44,6 +47,9 @@ export function AdminSidebar({
   setOverlayConfig,
   autoApprove,
   setAutoApprove,
+  hasUnsavedChanges,
+  isSaving,
+  onResetConfig,
   onSaveConfig,
 }: AdminSidebarProps) {
   return (
@@ -97,16 +103,49 @@ export function AdminSidebar({
           {selectedEventId ? (
             <iframe
               key={previewKey}
-              src={`/overlay?eventId=${selectedEventId}`}
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/overlay?eventId=${selectedEventId}`}
               title="Overlay Preview"
               id="overlay-preview"
             />
           ) : null}
         </div>
+        <div className="flex gap-sm" style={{ marginTop: 'var(--space-sm)' }}>
+          <a
+            className="btn btn-ghost btn-sm w-full"
+            href={selectedEventId ? `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/overlay?eventId=${selectedEventId}` : '#'}
+            target="_blank"
+            rel="noreferrer"
+            aria-disabled={!selectedEventId}
+            onClick={(event) => {
+              if (!selectedEventId) {
+                event.preventDefault();
+              }
+            }}
+          >
+            🔎 Preview Penuh
+          </a>
+          <a
+            className="btn btn-ghost btn-sm w-full"
+            href={overlayUrl || '#'}
+            target="_blank"
+            rel="noreferrer"
+            aria-disabled={!overlayUrl}
+            onClick={(event) => {
+              if (!overlayUrl) {
+                event.preventDefault();
+              }
+            }}
+          >
+            🎬 Buka OBS
+          </a>
+        </div>
       </div>
 
       <div className="glass-card">
-        <div className="panel-title">Pengaturan Overlay</div>
+        <div className="panel-title">
+          Pengaturan Overlay
+          {hasUnsavedChanges ? <span className="badge badge-pending">Belum disimpan</span> : <span className="badge badge-approved">Sinkron</span>}
+        </div>
 
         <div className="config-section" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
           <div className="config-section-title">Tipe Tampilan</div>
@@ -290,6 +329,22 @@ export function AdminSidebar({
             />
           </div>
           <div className="style-control">
+            <label htmlFor="overlay-speed-variance">Variasi Speed: ±{Math.round(overlayConfig.speedVariance * 100)}%</label>
+            <input
+              id="overlay-speed-variance"
+              aria-label="Variasi kecepatan overlay"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={overlayConfig.speedVariance}
+              onChange={(event) => setOverlayConfig((previous) => ({ ...previous, speedVariance: Number(event.target.value) }))}
+            />
+            <span className="text-xs text-muted">
+              0% untuk gerakan stabil, naikkan jika ingin pergerakan komentar terasa lebih natural.
+            </span>
+          </div>
+          <div className="style-control">
             <label htmlFor="overlay-spawn-interval">Jarak Spawn: {overlayConfig.spawnInterval}ms</label>
             <input
               id="overlay-spawn-interval"
@@ -388,9 +443,14 @@ export function AdminSidebar({
           </div>
         </div>
 
-        <button className="btn btn-primary btn-sm w-full" onClick={onSaveConfig} id="save-config-btn" style={{ marginTop: 'var(--space-md)' }}>
-          Simpan Pengaturan
-        </button>
+        <div className="flex gap-sm" style={{ marginTop: 'var(--space-md)' }}>
+          <button className="btn btn-ghost btn-sm w-full" onClick={onResetConfig} disabled={isSaving || !selectedEventId}>
+            Reset Default
+          </button>
+          <button className="btn btn-primary btn-sm w-full" onClick={onSaveConfig} id="save-config-btn" disabled={isSaving || !selectedEventId || !hasUnsavedChanges}>
+            {isSaving ? 'Menyimpan...' : hasUnsavedChanges ? 'Simpan Perubahan' : 'Tersimpan'}
+          </button>
+        </div>
       </div>
     </div>
   );

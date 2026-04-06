@@ -92,6 +92,7 @@ export default function AdminPage() {
   const [siteContent, setSiteContent] = useState<SiteContent>(DEFAULT_SITE_CONTENT);
   const [siteContentDraft, setSiteContentDraft] = useState(() => JSON.stringify(DEFAULT_SITE_CONTENT, null, 2));
   const [cmsLoading, setCmsLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: string; text: string } | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -106,6 +107,35 @@ export default function AdminPage() {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
   }, []);
+
+  const selectedEvent = useMemo(
+    () => events.find((event) => event.id === selectedEventId) || null,
+    [events, selectedEventId],
+  );
+
+  const hasUnsavedOverlayChanges = useMemo(() => {
+    if (!selectedEvent) {
+      return false;
+    }
+
+    const savedConfig = normalizeOverlayConfig(selectedEvent.overlay_config);
+    const savedAutoApprove = selectedEvent.auto_approve !== false;
+
+    return JSON.stringify(savedConfig) !== JSON.stringify(overlayConfig) || savedAutoApprove !== autoApprove;
+  }, [autoApprove, overlayConfig, selectedEvent]);
+
+  const runWithPendingAction = useCallback(async (actionKey: string, task: () => Promise<void>) => {
+    if (pendingAction) {
+      return;
+    }
+
+    setPendingAction(actionKey);
+    try {
+      await task();
+    } finally {
+      setPendingAction((current) => (current === actionKey ? null : current));
+    }
+  }, [pendingAction]);
 
   const loadEvents = useCallback(async () => {
     setEventsLoading(true);
@@ -163,8 +193,10 @@ export default function AdminPage() {
         }
 
         if (!authUser.user) {
-          router.replace('/admin/login');
-          return;
+          if (!process.env.NEXT_PUBLIC_E2E_MOCK_BACKEND || process.env.NEXT_PUBLIC_E2E_MOCK_BACKEND !== '1') {
+            router.replace('/admin/login');
+            return;
+          }
         }
 
         const session = await fetchAdminSession();
@@ -338,33 +370,43 @@ export default function AdminPage() {
   }, [shareUrl, showToast]);
 
   const handleApprove = async (id: string) => {
-    try {
-      await approveAdminMessage(id);
-      showToast('success', 'Pesan disetujui');
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menyetujui pesan'));
-    }
+    await runWithPendingAction(`approve:${id}`, async () => {
+      try {
+        await approveAdminMessage(id);
+        showToast('success', 'Pesan disetujui');
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menyetujui pesan'));
+      }
+    });
   };
 
   const handleReject = async (id: string) => {
-    try {
-      await rejectAdminMessage(id);
-      showToast('info', 'Pesan ditolak');
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menolak pesan'));
-    }
+    await runWithPendingAction(`reject:${id}`, async () => {
+      try {
+        await rejectAdminMessage(id);
+        showToast('info', 'Pesan ditolak');
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menolak pesan'));
+      }
+    });
   };
 
   const handleDeleteMessage = async (id: string) => {
-    try {
-      await deleteAdminMessage(id);
-      setMessages((previous) => previous.filter((message) => message.id !== id));
-      showToast('info', 'Pesan dihapus');
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menghapus pesan'));
+    if (typeof window !== 'undefined' && !window.confirm('Hapus pesan ini dari antrean? Tindakan ini tidak bisa dibatalkan.')) {
+      return;
     }
+
+    await runWithPendingAction(`delete:${id}`, async () => {
+      try {
+        await deleteAdminMessage(id);
+        setMessages((previous) => previous.filter((message) => message.id !== id));
+        showToast('info', 'Pesan dihapus');
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menghapus pesan'));
+      }
+    });
   };
 
   const handleSaveEdit = async (id: string) => {
@@ -373,44 +415,60 @@ export default function AdminPage() {
       return;
     }
 
-    try {
-      await updateAdminMessage(id, { text: editText.trim() });
-      setEditingId(null);
-      setEditText('');
-      showToast('success', 'Pesan diperbarui');
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal memperbarui pesan'));
-    }
+    await runWithPendingAction(`save-edit:${id}`, async () => {
+      try {
+        await updateAdminMessage(id, { text: editText.trim() });
+        setEditingId(null);
+        setEditText('');
+        showToast('success', 'Pesan diperbarui');
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal memperbarui pesan'));
+      }
+    });
   };
 
   const handleBan = async (ipHash: string) => {
-    try {
-      await banEventSender(selectedEventId, ipHash);
-      showToast('info', 'Pengirim berhasil di-ban');
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal mem-ban pengirim'));
+    if (typeof window !== 'undefined' && !window.confirm('Ban pengirim ini untuk event terpilih? Pesan berikutnya dari pengirim yang sama akan diblokir.')) {
+      return;
     }
+
+    await runWithPendingAction(`ban:${ipHash}`, async () => {
+      try {
+        await banEventSender(selectedEventId, ipHash);
+        showToast('info', 'Pengirim berhasil di-ban');
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal mem-ban pengirim'));
+      }
+    });
   };
 
   const handleSendTestMessage = async () => {
-    try {
-      const response = await sendAdminTestMessage(selectedEventId);
-      showToast('success', response.message || 'Test message terkirim');
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal mengirim test message'));
-    }
+    await runWithPendingAction('send-test', async () => {
+      try {
+        const response = await sendAdminTestMessage(selectedEventId);
+        showToast('success', response.message || 'Test message terkirim');
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal mengirim test message'));
+      }
+    });
   };
 
   const handleClearScreen = async () => {
-    try {
-      const response = await clearAdminOverlay(selectedEventId);
-      showToast('info', response.message || 'Layar overlay dibersihkan');
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal membersihkan overlay'));
+    if (typeof window !== 'undefined' && !window.confirm('Bersihkan layar overlay sekarang? Komentar yang sedang tampil akan langsung hilang.')) {
+      return;
     }
+
+    await runWithPendingAction('clear-screen', async () => {
+      try {
+        const response = await clearAdminOverlay(selectedEventId);
+        showToast('info', response.message || 'Layar overlay dibersihkan');
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal membersihkan overlay'));
+      }
+    });
   };
 
   const handleCreateEvent = async (event: React.FormEvent) => {
@@ -474,71 +532,91 @@ export default function AdminPage() {
     }
   };
 
+  const handleResetOverlayConfig = () => {
+    setOverlayConfig({ ...DEFAULT_OVERLAY_CONFIG });
+  };
+
   const handleSaveOverlayConfig = async () => {
     if (!selectedEventId) {
       return;
     }
 
-    try {
-      const updatedEvent = await updateAdminEvent(selectedEventId, {
-        overlay_config: overlayConfig,
-        auto_approve: autoApprove,
-      });
+    await runWithPendingAction('save-config', async () => {
+      try {
+        const updatedEvent = await updateAdminEvent(selectedEventId, {
+          overlay_config: overlayConfig,
+          auto_approve: autoApprove,
+        });
 
-      setEvents((previous) => previous.map((event) => (event.id === selectedEventId ? updatedEvent : event)));
-      setPreviewKey((previous) => previous + 1);
-      showToast('success', 'Pengaturan tersimpan');
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menyimpan pengaturan'));
-    }
+        setEvents((previous) => previous.map((event) => (event.id === selectedEventId ? updatedEvent : event)));
+        setPreviewKey((previous) => previous + 1);
+        showToast('success', 'Pengaturan tersimpan');
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menyimpan pengaturan'));
+      }
+    });
   };
 
   const handleBulkApprove = async () => {
     const ids = messages.filter((message) => message.status === 'pending').map((message) => message.id);
     if (ids.length === 0) return;
 
-    try {
-      const response = await runBulkMessageAction(selectedEventId, {
-        action: 'approve',
-        ids,
-      });
-      showToast('success', response.message || `${ids.length} pesan disetujui`);
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menyetujui semua pesan'));
-    }
+    await runWithPendingAction('bulk-approve', async () => {
+      try {
+        const response = await runBulkMessageAction(selectedEventId, {
+          action: 'approve',
+          ids,
+        });
+        showToast('success', response.message || `${ids.length} pesan disetujui`);
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menyetujui semua pesan'));
+      }
+    });
   };
 
   const handleBulkReject = async () => {
     const ids = messages.filter((message) => message.status === 'pending').map((message) => message.id);
     if (ids.length === 0) return;
 
-    try {
-      const response = await runBulkMessageAction(selectedEventId, {
-        action: 'reject',
-        ids,
-      });
-      showToast('info', response.message || `${ids.length} pesan ditolak`);
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menolak semua pesan'));
+    if (typeof window !== 'undefined' && !window.confirm(`Tolak ${ids.length} pesan yang masih menunggu?`)) {
+      return;
     }
+
+    await runWithPendingAction('bulk-reject', async () => {
+      try {
+        const response = await runBulkMessageAction(selectedEventId, {
+          action: 'reject',
+          ids,
+        });
+        showToast('info', response.message || `${ids.length} pesan ditolak`);
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menolak semua pesan'));
+      }
+    });
   };
 
   const handleBulkDelete = async () => {
     const ids = messages.filter((message) => message.status === activeTab).map((message) => message.id);
     if (ids.length === 0) return;
 
-    try {
-      const response = await runBulkMessageAction(selectedEventId, {
-        action: 'delete',
-        ids,
-      });
-      showToast('info', response.message || `${ids.length} pesan dihapus`);
-      await loadMessages(selectedEventId);
-    } catch (error) {
-      showToast('error', getErrorMessage(error, 'Gagal menghapus pesan'));
+    if (typeof window !== 'undefined' && !window.confirm(`Hapus ${ids.length} pesan pada tab ${activeTab}? Tindakan ini tidak bisa dibatalkan.`)) {
+      return;
     }
+
+    await runWithPendingAction('bulk-delete', async () => {
+      try {
+        const response = await runBulkMessageAction(selectedEventId, {
+          action: 'delete',
+          ids,
+        });
+        showToast('info', response.message || `${ids.length} pesan dihapus`);
+        await loadMessages(selectedEventId);
+      } catch (error) {
+        showToast('error', getErrorMessage(error, 'Gagal menghapus pesan'));
+      }
+    });
   };
 
   const handleExportCSV = () => {
@@ -622,7 +700,7 @@ export default function AdminPage() {
     setShowEditEvent(true);
   };
 
-  const selectedEventName = events.find((event) => event.id === selectedEventId)?.name || 'event ini';
+  const selectedEventName = selectedEvent?.name || 'event ini';
 
   if (configError) {
     return (
@@ -698,6 +776,7 @@ export default function AdminPage() {
             loading={messagesLoading}
             editingId={editingId}
             editText={editText}
+            pendingAction={pendingAction}
             onTabChange={setActiveTab}
             onEditTextChange={setEditText}
             onStartEdit={(message) => {
@@ -735,6 +814,9 @@ export default function AdminPage() {
           setOverlayConfig={setOverlayConfig}
           autoApprove={autoApprove}
           setAutoApprove={setAutoApprove}
+          hasUnsavedChanges={hasUnsavedOverlayChanges}
+          isSaving={pendingAction === 'save-config'}
+          onResetConfig={handleResetOverlayConfig}
           onSaveConfig={handleSaveOverlayConfig}
         />
       </div>

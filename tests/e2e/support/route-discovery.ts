@@ -4,11 +4,24 @@ import path from 'node:path';
 const APP_ROOT = path.join(process.cwd(), 'src', 'app');
 const BUILD_MANIFEST = path.join(process.cwd(), '.next', 'server', 'app-paths-manifest.json');
 
+function normalizeSegment(segment: string) {
+  if (segment.startsWith('(') && segment.endsWith(')')) {
+    return '';
+  }
+
+  if (segment.startsWith('@')) {
+    return '';
+  }
+
+  return segment;
+}
+
 function toRoutePath(relativeDir: string) {
   const normalized = relativeDir
     .split(path.sep)
     .filter(Boolean)
-    .filter((segment) => !segment.startsWith('(') || !segment.endsWith(')'))
+    .map(normalizeSegment)
+    .filter(Boolean)
     .join('/');
 
   return normalized ? `/${normalized}` : '/';
