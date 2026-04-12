@@ -333,7 +333,6 @@ function OverlayContent() {
 
     const now = Date.now();
     const currentConfig = configRef.current;
-    updateDimensions();
 
     if (currentConfig.scrollType === 'danmaku') {
       const isHorizontal = isHorizontalDirection(currentConfig.scrollDirection);
@@ -400,7 +399,7 @@ function OverlayContent() {
     }
 
     animationRef.current = requestAnimationFrame(animationLoop);
-  }, [spawnMessage, updateDimensions]);
+  }, [spawnMessage]);
 
   const queueApprovedMessages = useCallback((messages: PublicApprovedMessage[]) => {
     messages.forEach((message) => {
@@ -517,32 +516,55 @@ function OverlayContent() {
     messageRequestIdRef.current = 0;
     eventInFlightRef.current = false;
     messageInFlightRef.current = false;
-    updateDimensions();
     lanesRef.current = createOverlayLaneState(configRef.current.laneCount);
     clearOverlayState(true);
 
-    void loadEvent(eventId);
-    void loadMessages(eventId);
-    animationRef.current = requestAnimationFrame(animationLoop);
+    let messageInterval: ReturnType<typeof setInterval> | undefined;
+    let eventInterval: ReturnType<typeof setInterval> | undefined;
+    let resizeObserver: ResizeObserver | undefined;
+    let started = false;
 
-    const messageInterval = setInterval(() => {
-      void loadMessages(eventId);
-    }, 1200);
-    const eventInterval = setInterval(() => {
+    const startOverlay = () => {
+      if (started || destroyedRef.current) {
+        return;
+      }
+
+      started = true;
+      updateDimensions();
       void loadEvent(eventId);
-    }, 2500);
+      void loadMessages(eventId);
+      animationRef.current = requestAnimationFrame(animationLoop);
 
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    if (danmakuRef.current) {
-      resizeObserver.observe(danmakuRef.current);
+      messageInterval = setInterval(() => {
+        void loadMessages(eventId);
+      }, 1200);
+      eventInterval = setInterval(() => {
+        void loadEvent(eventId);
+      }, 2500);
+
+      resizeObserver = new ResizeObserver(updateDimensions);
+      if (danmakuRef.current) {
+        resizeObserver.observe(danmakuRef.current);
+      }
+    };
+
+    if (document.readyState === 'complete') {
+      startOverlay();
+    } else {
+      window.addEventListener('load', startOverlay, { once: true });
     }
 
     return () => {
       destroyedRef.current = true;
+      window.removeEventListener('load', startOverlay);
       cancelAnimationFrame(animationRef.current);
-      clearInterval(messageInterval);
-      clearInterval(eventInterval);
-      resizeObserver.disconnect();
+      if (messageInterval) {
+        clearInterval(messageInterval);
+      }
+      if (eventInterval) {
+        clearInterval(eventInterval);
+      }
+      resizeObserver?.disconnect();
       clearOverlayState(true);
     };
   }, [animationLoop, clearOverlayState, eventId, loadEvent, loadMessages, updateDimensions]);

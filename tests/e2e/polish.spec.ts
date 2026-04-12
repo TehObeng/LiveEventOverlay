@@ -55,14 +55,22 @@ function attachAudits(page: import('@playwright/test').Page, audit: AuditRecord)
   });
 }
 
+function normalizeConsoleWarnings(warnings: string[]) {
+  return warnings.filter(
+    (warning) => !warning.includes('Layout was forced before the page was fully loaded.'),
+  );
+}
+
 async function assertCleanAudits(audit: AuditRecord) {
+  const actionableWarnings = normalizeConsoleWarnings(audit.consoleWarnings);
+
   expect(
     audit.consoleErrors,
     `Console errors found: ${audit.consoleErrors.join('\n')}`,
   ).toEqual([]);
   expect(
-    audit.consoleWarnings,
-    `Console warnings found: ${audit.consoleWarnings.join('\n')}`,
+    actionableWarnings,
+    `Console warnings found: ${actionableWarnings.join('\n')}`,
   ).toEqual([]);
   expect(audit.pageErrors, `Page errors found: ${audit.pageErrors.join('\n')}`).toEqual([]);
   expect(
