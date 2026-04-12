@@ -1,0 +1,14 @@
+node_modules
+.next
+.netlify
+.git
+.gitignore
+output
+playwright-report
+coverage
+*.log
+.env
+.env.local
+.env.production
+screenshot.png
+.next.root-backup
