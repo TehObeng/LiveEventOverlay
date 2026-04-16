@@ -53,6 +53,26 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    if (basePath) {
+      return [];
+    }
+
+    return [
+      {
+        source: '/liveeventoverlay',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/liveeventoverlay/:path*',
+        destination: '/:path*',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
+
+import('@opennextjs/cloudflare').then(m => m.initOpenNextCloudflareForDev());
