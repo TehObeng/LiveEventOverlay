@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { Message } from '@/lib/types';
 import { isUuid, jsonError } from '@/lib/admin-auth';
 import {
@@ -9,7 +9,10 @@ import {
 } from '@/lib/public-message-cursor';
 import { toPublicApprovedMessage } from '@/lib/public';
 import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 function isValidIsoString(value: string) {
   return !Number.isNaN(new Date(value).getTime());
@@ -115,7 +118,7 @@ export async function GET(
     const messages = pageRows.map(toPublicApprovedMessage);
     const nextSince = encodePublicMessageCursor(pageRows[pageRows.length - 1]) || since;
 
-    return NextResponse.json({
+    return noStoreJson({
       messages,
       nextSince: nextSince || null,
       clearedAt: eventData.overlay_cleared_at ?? null,

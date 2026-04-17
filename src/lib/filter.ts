@@ -5,99 +5,264 @@
 
 import type { FilterResult } from './types.ts';
 
-// Exact-match blocked words (will use word-boundary matching)
 const BLACKLIST_EXACT = [
-  // Indonesian profanity & variants
-  "anjing", "anjir", "anjg", "anjay", "anying", "anjrit",
-  "babi", "babs",
-  "kontol", "kontl", "kntl", "kontoool",
-  "memek", "mmk", "memex",
-  "goblok", "goblog", "gblk",
-  "tolol", "tll",
-  "bangsat", "bngst", "bgst",
-  "jancok", "jancuk", "jnck", "dancok", "cok",
-  "asu",
-  "bajingan",
-  "keparat",
-  "setan", "seten",
-  "brengsek",
-  "kampret", "kmprt",
-  "tai", "taik",
-  "sialan",
-  "monyet", "monyong",
-  "perek",
-  "lonte", "lonthe",
-  "sundal",
-  "kimak",
-  // English profanity & variants
-  "fuck", "fucked", "fucker", "fucking", "fck", "fuk", "fak", "phuck",
-  "shit", "shite", "shet", "shyt",
-  "bitch", "biatch", "b1tch",
-  "asshole", "ashole",
-  "dick", "d1ck",
-  "pussy", "pus5y",
-  "nigger", "nigg3r", "n1gger", "nigga",
-  "faggot", "fag", "f4g",
-  "cunt", "c0nt",
-  "whore", "wh0re",
-  "bastard", "b4stard",
-  // Spam / promo
-  "casino", "porn", "xxx", "crypto", "btc",
+  'anjing', 'anjir', 'anjg', 'anjay', 'anying', 'anjrit',
+  'babi', 'babs',
+  'kontol', 'kontl', 'kntl', 'kontoool',
+  'memek', 'mmk', 'memex',
+  'goblok', 'goblog', 'gblk',
+  'tolol', 'tll',
+  'bangsat', 'bngst', 'bgst',
+  'jancok', 'jancuk', 'jnck', 'dancok', 'cok',
+  'asu',
+  'bajingan',
+  'keparat',
+  'setan', 'seten',
+  'brengsek',
+  'kampret', 'kmprt',
+  'tai', 'taik',
+  'sialan',
+  'monyet', 'monyong',
+  'perek',
+  'lonte', 'lonthe',
+  'sundal',
+  'kimak',
+  'fuck', 'fucked', 'fucker', 'fucking', 'fck', 'fuk', 'fak', 'phuck',
+  'shit', 'shite', 'shet', 'shyt',
+  'bitch', 'biatch', 'b1tch',
+  'asshole', 'ashole',
+  'dick', 'd1ck',
+  'pussy', 'pus5y',
+  'nigger', 'nigg3r', 'n1gger', 'nigga',
+  'faggot', 'fag', 'f4g',
+  'cunt', 'c0nt',
+  'whore', 'wh0re',
+  'bastard', 'b4stard',
+  'motherfucker',
+  'casino', 'porn', 'xxx', 'crypto', 'btc',
 ];
 
-// Substring-match blocked patterns (will match anywhere in text)
 const BLACKLIST_SUBSTRING = [
-  "ngentot", "ngewe", "ngesex", "bokep",
-  "jembut", "pepek", "titit",
-  "pornhub", "xvideos", "xhamster",
+  'ngentot', 'ngewe', 'ngesex', 'bokep',
+  'jembut', 'pepek', 'titit',
+  'pornhub', 'xvideos', 'xhamster',
+  'gofuckyourself', 'fuckyou', 'fuckyou', 'fucku', 'fukyou',
+  'anjinglu', 'anjinglo', 'anjingkau',
+  'suckmydick', 'eatshit',
+  '操你', '操你妈', '傻逼', '傻b', '妈的', '他妈的', '去死',
 ];
 
-// Words flagged as risky (needs review but not auto-blocked)
 const RISKY_WORDS = [
-  "bodoh", "idiot", "stupid", "dumb", "noob", "bot",
-  "gila", "cuk", "sialan",
-  "bego", "bodo", "koplak", "edan", "gendeng",
-  "bacot", "bangke", "bejat",
+  'bodoh', 'idiot', 'stupid', 'dumb', 'noob', 'bot',
+  'gila', 'cuk', 'sialan',
+  'bego', 'bodo', 'koplak', 'edan', 'gendeng',
+  'bacot', 'bangke', 'bejat',
+  'sampah', 'tol', 'loser', 'moron', 'retard',
+  '垃圾', '笨蛋',
 ];
 
-// Basic leet-speak / homoglyph normalization
-function normalizeLeetSpeak(text: string): string {
-  return text
-    .replace(/@/g, 'a')
-    .replace(/0/g, 'o')
-    .replace(/1/g, 'i')
-    .replace(/\$/g, 's')
-    .replace(/3/g, 'e')
-    .replace(/4/g, 'a')
-    .replace(/5/g, 's')
-    .replace(/7/g, 't')
-    .replace(/!/g, 'i')
-    .replace(/8/g, 'b');
+const ZERO_WIDTH_AND_BIDI = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g;
+const COMBINING_MARKS = /\p{Mark}+/gu;
+const NON_ALPHANUMERIC = /[^\p{Letter}\p{Number}]+/gu;
+
+const CONFUSABLE_CHARACTER_MAP: Record<string, string> = {
+  '@': 'a',
+  '$': 's',
+  '€': 'e',
+  '£': 'l',
+  '¥': 'y',
+  '0': 'o',
+  '1': 'i',
+  '!': 'i',
+  '|': 'i',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '6': 'g',
+  '7': 't',
+  '8': 'b',
+  '9': 'g',
+  '+': 't',
+  'а': 'a',
+  'е': 'e',
+  'і': 'i',
+  'ј': 'j',
+  'о': 'o',
+  'р': 'p',
+  'с': 'c',
+  'у': 'y',
+  'х': 'x',
+  'к': 'k',
+  'м': 'm',
+  'т': 't',
+  'в': 'b',
+  'Α': 'a',
+  'Β': 'b',
+  'Ε': 'e',
+  'Η': 'h',
+  'Ι': 'i',
+  'Κ': 'k',
+  'Μ': 'm',
+  'Ν': 'n',
+  'Ο': 'o',
+  'Ρ': 'p',
+  'Τ': 't',
+  'Χ': 'x',
+};
+
+type MatchForms = {
+  canonical: string;
+  spaced: string;
+  compact: string;
+  compactCollapsed: string;
+  tokens: string[];
+};
+
+function normalizeFullWidthToAscii(text: string) {
+  return text.replace(/[\uFF01-\uFF5E]/g, (char) =>
+    String.fromCharCode(char.charCodeAt(0) - 0xfee0),
+  );
 }
 
-// Strip spaces/dots/dashes inserted between letters to evade filters
-function normalizeEvasion(text: string): string {
-  // Remove zero-width chars, dots, dashes, underscores between letters
-  return text.replace(/[\s\.\-_*]+/g, '');
+function canonicalizeCharacters(text: string) {
+  return Array.from(text, (character) => CONFUSABLE_CHARACTER_MAP[character] || character).join('');
 }
 
-// Word-boundary-aware word check for exact matches
-function containsBlockedWord(text: string): boolean {
-  const lower = text.toLowerCase();
-  const normalized = normalizeLeetSpeak(lower);
-  const compacted = normalizeEvasion(normalized);
+function normalizeUnicode(text: string) {
+  return canonicalizeCharacters(
+    normalizeFullWidthToAscii(text)
+      .normalize('NFKD')
+      .replace(COMBINING_MARKS, '')
+      .replace(ZERO_WIDTH_AND_BIDI, '')
+      .toLowerCase(),
+  );
+}
 
-  // Check exact word-boundary matches
+function collapseRepeatedCharacters(text: string, maxRun: number) {
+  if (!text) {
+    return text;
+  }
+
+  let previous = '';
+  let run = 0;
+  let output = '';
+
+  for (const character of text) {
+    if (character === previous) {
+      run += 1;
+    } else {
+      previous = character;
+      run = 1;
+    }
+
+    if (run <= maxRun) {
+      output += character;
+    }
+  }
+
+  return output;
+}
+
+function getMatchForms(text: string): MatchForms {
+  const canonical = normalizeUnicode(text);
+  const spaced = canonical.replace(NON_ALPHANUMERIC, ' ').trim().replace(/\s+/g, ' ');
+  const compact = canonical.replace(NON_ALPHANUMERIC, '');
+  const compactCollapsed = collapseRepeatedCharacters(compact, 1);
+
+  return {
+    canonical,
+    spaced,
+    compact,
+    compactCollapsed,
+    tokens: spaced ? spaced.split(' ') : [],
+  };
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSeparatedWordPattern(word: string) {
+  const body = Array.from(word, (character) => escapeRegex(character)).join('[^\\p{Letter}\\p{Number}]*');
+  return new RegExp(`(^|[^\\p{Letter}\\p{Number}])${body}(?=$|[^\\p{Letter}\\p{Number}])`, 'iu');
+}
+
+function levenshteinDistance(left: string, right: string) {
+  if (left === right) {
+    return 0;
+  }
+
+  if (!left.length) {
+    return right.length;
+  }
+
+  if (!right.length) {
+    return left.length;
+  }
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = new Array<number>(right.length + 1).fill(0);
+
+  for (let row = 1; row <= left.length; row += 1) {
+    current[0] = row;
+
+    for (let column = 1; column <= right.length; column += 1) {
+      const substitutionCost = left[row - 1] === right[column - 1] ? 0 : 1;
+      current[column] = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + substitutionCost,
+      );
+    }
+
+    for (let column = 0; column <= right.length; column += 1) {
+      previous[column] = current[column];
+    }
+  }
+
+  return previous[right.length];
+}
+
+function isApproximateTokenMatch(token: string, candidate: string) {
+  if (token === candidate) {
+    return true;
+  }
+
+  if (!token || !candidate || token[0] !== candidate[0]) {
+    return false;
+  }
+
+  const maxLengthDelta = candidate.length >= 5 ? 2 : 1;
+  if (Math.abs(token.length - candidate.length) > maxLengthDelta) {
+    return false;
+  }
+
+  const maxDistance = candidate.length >= 5 ? 2 : 1;
+  return levenshteinDistance(token, candidate) <= maxDistance;
+}
+
+function containsBlockedWord(forms: MatchForms): boolean {
   for (const word of BLACKLIST_EXACT) {
-    const pattern = new RegExp(`\\b${word}\\b`, 'i');
-    if (pattern.test(lower) || pattern.test(normalized) || pattern.test(compacted)) {
+    if (forms.tokens.includes(word)) {
+      return true;
+    }
+
+    if (buildSeparatedWordPattern(word).test(forms.canonical)) {
+      return true;
+    }
+
+    if (forms.tokens.some((token) => token.length >= 3 && isApproximateTokenMatch(token, word))) {
       return true;
     }
   }
 
-  // Check substring matches (for compound words)
-  for (const word of BLACKLIST_SUBSTRING) {
-    if (lower.includes(word) || normalized.includes(word) || compacted.includes(word)) {
+  for (const fragment of BLACKLIST_SUBSTRING) {
+    const normalizedFragment = normalizeUnicode(fragment).replace(NON_ALPHANUMERIC, '');
+    const collapsedFragment = collapseRepeatedCharacters(normalizedFragment, 1);
+    if (
+      forms.compact.includes(normalizedFragment) ||
+      forms.compactCollapsed.includes(collapsedFragment)
+    ) {
       return true;
     }
   }
@@ -105,91 +270,89 @@ function containsBlockedWord(text: string): boolean {
   return false;
 }
 
-// Check risky words (word-boundary)
-function containsRiskyWord(text: string): boolean {
-  const lower = text.toLowerCase();
-  const normalized = normalizeLeetSpeak(lower);
-  return RISKY_WORDS.some(word => {
-    const pattern = new RegExp(`\\b${word}\\b`, 'i');
-    return pattern.test(lower) || pattern.test(normalized);
-  });
+function containsRiskyWord(forms: MatchForms): boolean {
+  for (const word of RISKY_WORDS) {
+    if (forms.tokens.includes(word)) {
+      return true;
+    }
+
+    if (buildSeparatedWordPattern(word).test(forms.canonical)) {
+      return true;
+    }
+
+    if (forms.tokens.some((token) => token.length >= 3 && isApproximateTokenMatch(token, word))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function buildModerationFingerprint(text: string) {
+  return getMatchForms(text).compactCollapsed;
 }
 
 export function basicFilterIntelligence(message: string, maxLength: number = 100): FilterResult {
-  const msg = message.toLowerCase().trim();
+  const trimmed = message.trim();
+  const forms = getMatchForms(trimmed);
 
-  // ===== BLOCKED checks (outright reject) =====
-
-  // Length check (early exit)
-  if (msg.length > maxLength || msg.length < 2) {
+  if (trimmed.length > maxLength || trimmed.length < 2) {
     return { ok: false, riskLevel: 'blocked', reason: 'length' };
   }
 
-  // Blacklist check (word-boundary + substring)
-  if (containsBlockedWord(msg)) {
+  if (containsBlockedWord(forms)) {
     return { ok: false, riskLevel: 'blocked', reason: 'blacklist' };
   }
 
-  // Link detection
-  if (/https?:\/\/|www\.|\.\s*(com|net|id|org|io|co)\b/i.test(msg)) {
+  if (/https?:\/\/|www\.|\.\s*(com|net|id|org|io|co)\b/i.test(trimmed)) {
     return { ok: false, riskLevel: 'blocked', reason: 'link' };
   }
 
-  // Spam detection: repeated characters (5+)
-  if (/(.)(\1){4,}/.test(msg)) {
+  if (/(.)((\s|[^\p{Letter}\p{Number}])*\1){4,}/iu.test(trimmed)) {
     return { ok: false, riskLevel: 'blocked', reason: 'spam' };
   }
 
-  // Spam detection: repeated words (same word 4+ times)
-  const words = msg.split(/\s+/);
-  if (words.length >= 3) {
+  if (forms.tokens.length >= 3) {
     const wordCounts = new Map<string, number>();
-    for (const word of words) {
-      const count = (wordCounts.get(word) || 0) + 1;
-      wordCounts.set(word, count);
+    for (const token of forms.tokens) {
+      const count = (wordCounts.get(token) || 0) + 1;
+      wordCounts.set(token, count);
       if (count >= 4) {
         return { ok: false, riskLevel: 'blocked', reason: 'spam' };
       }
     }
   }
 
-  // ===== RISKY checks (needs manual review) =====
   let isRisky = false;
 
-  // Borderline / risky words
-  if (containsRiskyWord(msg)) {
+  if (containsRiskyWord(forms)) {
     isRisky = true;
   }
 
-  // Excessive uppercase (>70% of alphabetic chars)
-  const alphaChars = message.replace(/[^a-zA-Z]/g, '');
+  const alphaChars = trimmed.replace(/[^\p{Letter}]/gu, '');
   if (alphaChars.length > 5) {
-    const upperCount = alphaChars.replace(/[^A-Z]/g, '').length;
+    const upperCount = alphaChars.replace(/[^\p{Lu}]/gu, '').length;
     if (upperCount / alphaChars.length > 0.7) {
       isRisky = true;
     }
   }
 
-  // Repeated characters (3-4 times — suspicious but not spam)
-  if (/(.)(\1){2,3}/.test(msg) && msg.length > 3) {
+  if (/(.)((\s|[^\p{Letter}\p{Number}])*\1){2,3}/iu.test(trimmed) && trimmed.length > 3) {
     isRisky = true;
   }
 
-  // Excessive special characters (>30% non-alphanumeric)
-  const specialChars = msg.replace(/[a-z0-9\s]/gi, '');
-  if (msg.length > 5 && specialChars.length / msg.length > 0.3) {
+  const specialChars = trimmed.replace(/[\p{Letter}\p{Number}\s]/gu, '');
+  if (trimmed.length > 5 && specialChars.length / trimmed.length > 0.3) {
     isRisky = true;
   }
 
-  // Very short messages (2-3 chars) — potentially meaningless
-  if (msg.length <= 3) {
+  if (trimmed.length <= 3) {
     isRisky = true;
   }
 
-  // ===== SAFE — passes everything =====
   return {
     ok: true,
     riskLevel: isRisky ? 'risky' : 'safe',
-    cleanedText: message.trim(),
+    cleanedText: trimmed,
   };
 }

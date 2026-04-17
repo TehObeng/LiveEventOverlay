@@ -31,7 +31,7 @@ import {
   isSupabaseSessionMissingError,
 } from '@/lib/supabase';
 import { AdminSessionData, DEFAULT_OVERLAY_CONFIG, EventData, Message, OverlayConfig, SiteContent } from '@/lib/types';
-import { isLocalhostUrl, resolveAppBaseUrl } from '@/lib/url';
+import { isLocalhostUrl, resolveAppBaseUrl, withBasePath } from '@/lib/url';
 import { DEFAULT_SITE_CONTENT, normalizeSiteContent } from '@/lib/site-content';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { EventModals } from '@/components/admin/EventModals';
@@ -55,6 +55,28 @@ function getAdminAccessError(error: unknown) {
   }
 
   return getErrorMessage(error, 'Gagal memverifikasi sesi admin');
+}
+
+function getRuntimeDataBackendLabel() {
+  return process.env.NEXT_PUBLIC_LIVE_DATA_BACKEND || 'local';
+}
+
+function getBuildVersionLabel() {
+  return process.env.NEXT_PUBLIC_BUILD_VERSION || '0.0.0';
+}
+
+function getBuildCommitLabel() {
+  return process.env.NEXT_PUBLIC_BUILD_COMMIT || 'unknown';
+}
+
+function getBuildTimeLabel() {
+  const value = process.env.NEXT_PUBLIC_BUILD_TIME || '';
+  if (!value) {
+    return 'unknown';
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
 export default function AdminPage() {
@@ -88,6 +110,7 @@ export default function AdminPage() {
   const [previewKey, setPreviewKey] = useState(0);
   const [shareBaseUrl, setShareBaseUrl] = useState('');
   const [shareWarning, setShareWarning] = useState('');
+  const [shareIsCrossDeviceSafe, setShareIsCrossDeviceSafe] = useState(false);
 
   const [siteContent, setSiteContent] = useState<SiteContent>(DEFAULT_SITE_CONTENT);
   const [siteContentDraft, setSiteContentDraft] = useState(() => JSON.stringify(DEFAULT_SITE_CONTENT, null, 2));
@@ -316,19 +339,19 @@ export default function AdminPage() {
       return;
     }
 
-    const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL || '';
     const runtimeOrigin = window.location.origin;
-    const nextBaseUrl = resolveAppBaseUrl(configuredAppUrl, runtimeOrigin);
+    const nextBaseUrl = resolveAppBaseUrl(process.env.NEXT_PUBLIC_APP_URL, runtimeOrigin);
 
     setShareBaseUrl(nextBaseUrl);
+    setShareIsCrossDeviceSafe(nextBaseUrl ? !isLocalhostUrl(nextBaseUrl) : false);
 
-    if (!configuredAppUrl) {
-      setShareWarning('NEXT_PUBLIC_APP_URL belum diatur. QR akan memakai origin halaman ini.');
+    if (!nextBaseUrl) {
+      setShareWarning('Origin halaman ini belum bisa dipastikan. Link chat/overlay belum tersedia.');
       return;
     }
 
-    if (isLocalhostUrl(configuredAppUrl)) {
-      setShareWarning('NEXT_PUBLIC_APP_URL masih menunjuk ke localhost. QR akan memakai origin halaman ini agar aman dibagikan.');
+    if (isLocalhostUrl(nextBaseUrl)) {
+      setShareWarning('Link memakai localhost. Aman untuk browser di mesin ini, tetapi tidak untuk perangkat lain.');
       return;
     }
 
@@ -350,6 +373,24 @@ export default function AdminPage() {
 
     return `${shareBaseUrl}/overlay?eventId=${selectedEventId}&obs=1`;
   }, [selectedEventId, shareBaseUrl]);
+
+  const previewOverlayPath = useMemo(() => {
+    if (!selectedEventId) {
+      return '';
+    }
+
+    return withBasePath(`/overlay?eventId=${selectedEventId}`);
+  }, [selectedEventId]);
+
+  const diagnostics = useMemo(() => ({
+    backend: getRuntimeDataBackendLabel(),
+    shareBaseUrl: shareBaseUrl || '-',
+    selectedEventId: selectedEventId || '-',
+    safeToShare: shareIsCrossDeviceSafe ? 'Ya' : 'Tidak',
+    buildVersion: getBuildVersionLabel(),
+    buildCommit: getBuildCommitLabel(),
+    buildTime: getBuildTimeLabel(),
+  }), [selectedEventId, shareBaseUrl, shareIsCrossDeviceSafe]);
 
   useEffect(() => {
     if (!shareUrl) {
@@ -807,6 +848,8 @@ export default function AdminPage() {
           shareUrl={shareUrl}
           shareWarning={shareWarning}
           overlayUrl={overlayUrl}
+          diagnostics={diagnostics}
+          previewOverlayPath={previewOverlayPath}
           onCopyChatLink={() => { void copyToClipboard(shareUrl, 'Chat link disalin'); }}
           onCopyOverlayLink={() => { void copyToClipboard(overlayUrl, 'Overlay link disalin'); }}
           previewKey={previewKey}

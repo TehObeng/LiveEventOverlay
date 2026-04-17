@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { jsonError, requireAdminUser } from '@/lib/admin-auth';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 import { DEFAULT_SITE_CONTENT, normalizeSiteContent, SITE_CONTENT_KEY } from '@/lib/site-content';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const auth = await requireAdminUser();
@@ -22,12 +25,12 @@ export async function GET() {
     }
 
     const row = data as { content?: unknown } | null;
-    return NextResponse.json({
+    return noStoreJson({
       content: normalizeSiteContent(row?.content),
     });
   } catch (error) {
     console.error('Admin site-content GET error:', error);
-    return NextResponse.json({ content: DEFAULT_SITE_CONTENT });
+    return noStoreJson({ content: DEFAULT_SITE_CONTENT });
   }
 }
 
@@ -64,7 +67,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const row = data as { content?: unknown } | null;
-    return NextResponse.json({ content: normalizeSiteContent(row?.content) });
+    return noStoreJson({ content: normalizeSiteContent(row?.content) });
   } catch (error) {
     console.error('Admin site-content PUT error:', error);
     return jsonError('Internal server error', 500);

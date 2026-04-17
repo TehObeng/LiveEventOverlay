@@ -9,6 +9,16 @@ interface AdminSidebarProps {
   shareUrl: string;
   shareWarning: string;
   overlayUrl: string;
+  diagnostics: {
+    backend: string;
+    shareBaseUrl: string;
+    selectedEventId: string;
+    safeToShare: string;
+    buildVersion: string;
+    buildCommit: string;
+    buildTime: string;
+  };
+  previewOverlayPath: string;
   onCopyChatLink: () => void;
   onCopyOverlayLink: () => void;
   previewKey: number;
@@ -40,6 +50,8 @@ export function AdminSidebar({
   shareUrl,
   shareWarning,
   overlayUrl,
+  diagnostics,
+  previewOverlayPath,
   onCopyChatLink,
   onCopyOverlayLink,
   previewKey,
@@ -98,12 +110,46 @@ export function AdminSidebar({
       </div>
 
       <div className="glass-card">
+        <div className="panel-title">Diagnostics</div>
+        <div className="text-xs" style={{ display: 'grid', gap: 8, lineHeight: 1.5 }}>
+          <div>
+            <span className="text-muted">Data backend: </span>
+            <strong>{diagnostics.backend}</strong>
+          </div>
+          <div style={{ wordBreak: 'break-all' }}>
+            <span className="text-muted">Share base URL: </span>
+            <strong>{diagnostics.shareBaseUrl}</strong>
+          </div>
+          <div>
+            <span className="text-muted">Selected event: </span>
+            <strong>{diagnostics.selectedEventId}</strong>
+          </div>
+          <div>
+            <span className="text-muted">Safe to share cross-device: </span>
+            <strong>{diagnostics.safeToShare}</strong>
+          </div>
+          <div>
+            <span className="text-muted">Running build: </span>
+            <strong>v{diagnostics.buildVersion}</strong>
+          </div>
+          <div>
+            <span className="text-muted">Commit: </span>
+            <strong>{diagnostics.buildCommit}</strong>
+          </div>
+          <div>
+            <span className="text-muted">Built at: </span>
+            <strong>{diagnostics.buildTime}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-card">
         <div className="panel-title">Live Preview</div>
         <div className="preview-frame">
-          {selectedEventId ? (
+          {previewOverlayPath ? (
             <iframe
               key={previewKey}
-              src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/overlay?eventId=${selectedEventId}`}
+              src={previewOverlayPath}
               title="Overlay Preview"
               id="overlay-preview"
             />
@@ -112,12 +158,12 @@ export function AdminSidebar({
         <div className="flex gap-sm" style={{ marginTop: 'var(--space-sm)' }}>
           <a
             className="btn btn-ghost btn-sm w-full"
-            href={selectedEventId ? `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/overlay?eventId=${selectedEventId}` : '#'}
+            href={previewOverlayPath || '#'}
             target="_blank"
             rel="noreferrer"
-            aria-disabled={!selectedEventId}
+            aria-disabled={!previewOverlayPath}
             onClick={(event) => {
-              if (!selectedEventId) {
+              if (!previewOverlayPath) {
                 event.preventDefault();
               }
             }}

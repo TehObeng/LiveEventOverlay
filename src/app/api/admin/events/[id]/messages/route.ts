@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { Message } from '@/lib/types';
 import { requireAdminUser, isUuid, jsonError } from '@/lib/admin-auth';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   _request: NextRequest,
@@ -29,7 +32,7 @@ export async function GET(
       return jsonError(error.message, 500);
     }
 
-    return NextResponse.json({
+    return noStoreJson({
       messages: (data || []) as Message[],
     });
   } catch (error) {

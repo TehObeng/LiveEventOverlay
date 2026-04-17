@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { DEFAULT_OVERLAY_CONFIG, EventData } from '@/lib/types';
 import { normalizeOverlayConfig } from '@/lib/public';
 import { requireAdminUser, jsonError } from '@/lib/admin-auth';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const auth = await requireAdminUser();
@@ -26,7 +29,7 @@ export async function GET() {
       overlay_config: normalizeOverlayConfig(event.overlay_config),
     }));
 
-    return NextResponse.json({ events });
+    return noStoreJson({ events });
   } catch (error) {
     console.error('Admin events GET error:', error);
     return jsonError('Internal server error', 500);
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     const event = data as EventData;
-    return NextResponse.json({
+    return noStoreJson({
       event: {
         ...event,
         overlay_config: normalizeOverlayConfig(event.overlay_config),

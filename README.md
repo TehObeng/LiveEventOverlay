@@ -19,12 +19,15 @@ Copy `.env.example` to `.env.local` and set:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `LIVE_DATA_BACKEND`
 - `NEXT_PUBLIC_BASE_PATH`
 - `NEXT_PUBLIC_APP_URL`
 
 `NEXT_PUBLIC_BASE_PATH` controls where the app is mounted, for example `/liveeventoverlay`.
 
-`NEXT_PUBLIC_APP_URL` should be the full public base URL used in QR codes, including the base path when the app is not mounted at the domain root, for example `https://eventdanel.site/liveeventoverlay`. If it still points to `localhost`, the admin UI falls back to the current browser origin and warns you.
+`LIVE_DATA_BACKEND` controls where events, messages, and CMS content are stored at runtime. Use `local` for the file-backed store in `data/local-db.json` on a standalone host, or `supabase` to keep event/message data in Supabase.
+
+`NEXT_PUBLIC_APP_URL` can be set to the full public base URL used in QR codes when you intentionally want to advertise a deployed/public URL. During normal standalone operation the admin UI prefers the current browser origin plus base path, and warns when that origin is localhost-only.
 
 ## Commands
 

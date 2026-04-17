@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { EventData } from '@/lib/types';
 import { requireAdminUser, isUuid, jsonError } from '@/lib/admin-auth';
 import { normalizeOverlayConfig } from '@/lib/public';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   _request: NextRequest,
@@ -27,7 +30,7 @@ export async function GET(
     }
 
     const event = data as EventData;
-    return NextResponse.json({
+    return noStoreJson({
       event: {
         ...event,
         overlay_config: normalizeOverlayConfig(event.overlay_config),
@@ -94,7 +97,7 @@ export async function PATCH(
     }
 
     const event = data as EventData;
-    return NextResponse.json({
+    return noStoreJson({
       event: {
         ...event,
         overlay_config: normalizeOverlayConfig(event.overlay_config),
@@ -128,7 +131,7 @@ export async function DELETE(
       return jsonError(error.message, 500);
     }
 
-    return NextResponse.json({ success: true, message: 'Event dihapus' });
+    return noStoreJson({ success: true, message: 'Event dihapus' });
   } catch (error) {
     console.error('Admin event DELETE error:', error);
     return jsonError('Internal server error', 500);

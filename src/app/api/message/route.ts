@@ -1,8 +1,10 @@
 import crypto from 'crypto';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { isUuid } from '@/lib/admin-auth';
 import { isE2EMockModeEnabled } from '@/lib/e2e-config';
 import { basicFilterIntelligence } from '@/lib/filter';
+import { isRememberedSafePhrase } from '@/lib/moderation-memory';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 import { EventData } from '@/lib/types';
 
@@ -40,15 +42,15 @@ export async function POST(request: NextRequest) {
     const senderName = sanitizeSenderName(body.senderName);
 
     if (!eventId || !text) {
-      return NextResponse.json({ error: 'eventId dan text wajib diisi' }, { status: 400 });
+      return noStoreJson({ error: 'eventId dan text wajib diisi' }, { status: 400 });
     }
 
     if (!isUuid(eventId)) {
-      return NextResponse.json({ error: 'Format eventId tidak valid' }, { status: 400 });
+      return noStoreJson({ error: 'Format eventId tidak valid' }, { status: 400 });
     }
 
     if (text.length > 500) {
-      return NextResponse.json({ error: 'Pesan terlalu panjang' }, { status: 400 });
+      return noStoreJson({ error: 'Pesan terlalu panjang' }, { status: 400 });
     }
 
     const supabase = createServiceRoleSupabaseClient();
@@ -63,13 +65,24 @@ export async function POST(request: NextRequest) {
     > | null;
 
     if (eventError || !eventData || !eventData.is_active) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: 'Event tidak ditemukan atau sudah berakhir' },
         { status: 404 },
       );
     }
 
-    const filterResult = basicFilterIntelligence(text, eventData.max_chars || 100);
+    let filterResult = basicFilterIntelligence(text, eventData.max_chars || 100);
+    if (
+      filterResult.ok &&
+      filterResult.riskLevel === 'risky' &&
+      (await isRememberedSafePhrase(supabase, text))
+    ) {
+      filterResult = {
+        ...filterResult,
+        riskLevel: 'safe',
+      };
+    }
+
     if (filterResult.riskLevel === 'blocked') {
       const reasons: Record<string, string> = {
         blacklist: 'Pesan mengandung kata yang tidak diizinkan',
@@ -78,7 +91,7 @@ export async function POST(request: NextRequest) {
         length: `Panjang pesan harus 2-${eventData.max_chars || 100} karakter`,
       };
 
-      return NextResponse.json(
+      return noStoreJson(
         { error: reasons[filterResult.reason || ''] || 'Pesan tidak valid' },
         { status: 400 },
       );
@@ -98,7 +111,7 @@ export async function POST(request: NextRequest) {
 
       if (timeSince < cooldownMs) {
         const waitSeconds = Math.ceil((cooldownMs - timeSince) / 1000);
-        return NextResponse.json(
+        return noStoreJson(
           { error: `Terlalu cepat. Tunggu ${waitSeconds} detik lagi.` },
           { status: 429 },
         );
@@ -115,12 +128,12 @@ export async function POST(request: NextRequest) {
 
     if (bannedError) {
       console.error('Ban check error:', bannedError);
-      return NextResponse.json({ error: 'Gagal memverifikasi status akun' }, { status: 500 });
+      return noStoreJson({ error: 'Gagal memverifikasi status akun' }, { status: 500 });
     }
 
     const bannedRows = bannedMessages as { id: string }[] | null;
     if (bannedRows && bannedRows.length > 0) {
-      return NextResponse.json({ error: 'Akun anda telah di-ban dari event ini' }, { status: 403 });
+      return noStoreJson({ error: 'Akun anda telah di-ban dari event ini' }, { status: 403 });
     }
 
     const autoApprove = eventData.auto_approve !== false;
@@ -144,12 +157,12 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('Insert error:', insertError);
-      return NextResponse.json({ error: 'Gagal menyimpan pesan' }, { status: 500 });
+      return noStoreJson({ error: 'Gagal menyimpan pesan' }, { status: 500 });
     }
 
     rateLimitMap.set(ipHash, Date.now());
 
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
       message:
         messageStatus === 'approved'
@@ -159,6 +172,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Message API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return noStoreJson({ error: 'Internal server error' }, { status: 500 });
   }
 }

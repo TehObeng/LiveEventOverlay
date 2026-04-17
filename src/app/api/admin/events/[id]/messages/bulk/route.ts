@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { AdminBulkMessageAction } from '@/lib/types';
 import { requireAdminUser, isUuid, jsonError } from '@/lib/admin-auth';
+import { rememberApprovedSafePhrase } from '@/lib/moderation-memory';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 function isBulkAction(value: unknown): value is AdminBulkMessageAction {
   return value === 'approve' || value === 'reject' || value === 'delete';
@@ -31,6 +35,18 @@ export async function POST(
     }
 
     const supabase = createServiceRoleSupabaseClient();
+    const { data: rowsToApprove, error: readError } =
+      action === 'approve'
+        ? await supabase
+            .from('messages')
+            .select('id, text, risk_level')
+            .in('id', ids)
+            .eq('event_id', id)
+        : { data: null, error: null };
+
+    if (readError) {
+      return jsonError(readError.message, 500);
+    }
 
     if (action === 'delete') {
       const { error } = await supabase.from('messages').delete().in('id', ids).eq('event_id', id);
@@ -60,9 +76,17 @@ export async function POST(
       if (error) {
         return jsonError(error.message, 500);
       }
+
+      if (action === 'approve' && Array.isArray(rowsToApprove)) {
+        for (const row of rowsToApprove as Array<{ text?: string; risk_level?: string | null }>) {
+          if (row?.risk_level === 'risky' && typeof row.text === 'string') {
+            await rememberApprovedSafePhrase(supabase, row.text, auth.user.id);
+          }
+        }
+      }
     }
 
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
       message: `${ids.length} pesan berhasil diproses`,
     });

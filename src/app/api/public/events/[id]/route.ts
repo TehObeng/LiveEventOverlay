@@ -1,9 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { EventData } from '@/lib/types';
 import { isUuid, jsonError } from '@/lib/admin-auth';
 import { toPublicEvent } from '@/lib/public';
 import { getSchemaSyncMessage, isMissingColumnError } from '@/lib/supabase-errors';
+import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   _request: NextRequest,
@@ -36,7 +39,7 @@ export async function GET(
       return jsonError('Event tidak ditemukan atau sudah berakhir', 404);
     }
 
-    return NextResponse.json({
+    return noStoreJson({
       event: toPublicEvent(data as EventData),
     });
   } catch (error) {

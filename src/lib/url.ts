@@ -68,12 +68,12 @@ export function resolveAppBaseUrl(
   const safeConfiguredUrl = configuredUrl?.trim() || '';
   const safeRuntimeOrigin = runtimeOrigin?.trim() || '';
 
-  if (safeConfiguredUrl && !isLocalhostUrl(safeConfiguredUrl)) {
-    return resolveBaseUrlWithPath(safeConfiguredUrl, basePath);
-  }
-
   if (safeRuntimeOrigin) {
     return resolveBaseUrlWithPath(safeRuntimeOrigin, basePath);
+  }
+
+  if (safeConfiguredUrl && !isLocalhostUrl(safeConfiguredUrl)) {
+    return resolveBaseUrlWithPath(safeConfiguredUrl, basePath);
   }
 
   if (safeConfiguredUrl) {

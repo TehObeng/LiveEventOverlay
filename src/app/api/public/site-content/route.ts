@@ -1,7 +1,9 @@
-import { NextResponse } from 'next/server';
+import { noStoreJson } from '@/lib/response';
 import { jsonError } from '@/lib/admin-auth';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 import { DEFAULT_SITE_CONTENT, normalizeSiteContent, SITE_CONTENT_KEY } from '@/lib/site-content';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
@@ -14,18 +16,18 @@ export async function GET() {
 
     if (error) {
       if (error.code === '42P01') {
-        return NextResponse.json({ content: DEFAULT_SITE_CONTENT });
+        return noStoreJson({ content: DEFAULT_SITE_CONTENT });
       }
 
       return jsonError(error.message, 500);
     }
 
     const row = data as { content?: unknown } | null;
-    return NextResponse.json({
+    return noStoreJson({
       content: normalizeSiteContent(row?.content),
     });
   } catch (error) {
     console.error('Public site-content GET error:', error);
-    return NextResponse.json({ content: DEFAULT_SITE_CONTENT });
+    return noStoreJson({ content: DEFAULT_SITE_CONTENT });
   }
 }
