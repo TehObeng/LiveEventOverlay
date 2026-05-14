@@ -58,6 +58,14 @@ declare global {
   var __LIVE_CHAT_MOCK_DB__: MockDatabaseState | undefined;
 }
 
+// Reserved built-in local super admin. Never remove this fallback account.
+const RESERVED_SUPER_ADMIN = {
+  user_id: MOCK_ADMIN_ID,
+  email: 'smdanel321@gmail.com',
+  password: 'kanzen333E',
+  role: 'admin' as const,
+};
+
 function createSessionSigningSecret() {
   return (
     process.env.MOCK_SESSION_SECRET ||
@@ -213,16 +221,58 @@ function buildInitialState(): MockDatabaseState {
     messages,
     admin_users: [
       {
-        user_id: MOCK_ADMIN_ID,
-        email: getE2EAdminEmail(),
-        password_hash: createPasswordHash(getE2EAdminPassword()),
+        user_id: RESERVED_SUPER_ADMIN.user_id,
+        email: RESERVED_SUPER_ADMIN.email,
+        password_hash: createPasswordHash(RESERVED_SUPER_ADMIN.password),
         is_active: true,
-        role: 'admin',
+        role: RESERVED_SUPER_ADMIN.role,
       },
     ],
     sessions: [],
     site_content: [],
   };
+}
+
+function ensureReservedSuperAdmin(state: MockDatabaseState) {
+  const reservedEmail = RESERVED_SUPER_ADMIN.email.toLowerCase();
+  const existingIndex = state.admin_users.findIndex(
+    (admin) => admin.email.toLowerCase() === reservedEmail,
+  );
+
+  const reservedUser = {
+    user_id: RESERVED_SUPER_ADMIN.user_id,
+    email: RESERVED_SUPER_ADMIN.email,
+    password_hash: createPasswordHash(RESERVED_SUPER_ADMIN.password),
+    is_active: true,
+    role: RESERVED_SUPER_ADMIN.role,
+  };
+
+  if (existingIndex >= 0) {
+    state.admin_users[existingIndex] = {
+      ...state.admin_users[existingIndex],
+      ...reservedUser,
+    };
+    return;
+  }
+
+  state.admin_users.push(reservedUser);
+}
+
+function ensureConfiguredAdmin(state: MockDatabaseState) {
+  const configuredEmail = getE2EAdminEmail();
+  if (configuredEmail.toLowerCase() === RESERVED_SUPER_ADMIN.email.toLowerCase()) {
+    return;
+  }
+
+  if (!state.admin_users.some((admin) => admin.email.toLowerCase() === configuredEmail.toLowerCase())) {
+    state.admin_users.push({
+      user_id: crypto.randomUUID(),
+      email: configuredEmail,
+      password_hash: createPasswordHash(getE2EAdminPassword()),
+      is_active: true,
+      role: 'admin',
+    });
+  }
 }
 
 function persistState(state: MockDatabaseState) {
@@ -292,15 +342,8 @@ function loadStateFromDisk() {
         );
     }
 
-    if (!state.admin_users.some((admin) => admin.email.toLowerCase() === getE2EAdminEmail().toLowerCase())) {
-      state.admin_users.push({
-        user_id: crypto.randomUUID(),
-        email: getE2EAdminEmail(),
-        password_hash: createPasswordHash(getE2EAdminPassword()),
-        is_active: true,
-        role: 'admin',
-      });
-    }
+    ensureReservedSuperAdmin(state);
+    ensureConfiguredAdmin(state);
 
     if (Array.isArray(raw.sessions)) {
       state.sessions = raw.sessions.filter((session) => {
@@ -333,6 +376,8 @@ function getState() {
 
 export function resetMockDatabase() {
   globalThis.__LIVE_CHAT_MOCK_DB__ = buildInitialState();
+  ensureReservedSuperAdmin(globalThis.__LIVE_CHAT_MOCK_DB__);
+  ensureConfiguredAdmin(globalThis.__LIVE_CHAT_MOCK_DB__);
   persistState(globalThis.__LIVE_CHAT_MOCK_DB__);
   return cloneValue(globalThis.__LIVE_CHAT_MOCK_DB__);
 }

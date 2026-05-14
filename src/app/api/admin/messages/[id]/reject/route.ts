@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { requireAdminUser, isUuid, jsonError } from '@/lib/admin-auth';
+import { rememberRejectedPhrase } from '@/lib/moderation-memory';
 import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 
@@ -21,6 +22,17 @@ export async function POST(
 
   try {
     const supabase = createServiceRoleSupabaseClient();
+    const { data: messageRow, error: messageError } = await supabase
+      .from('messages')
+      .select('text')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (messageError) {
+      return jsonError(messageError.message, 500);
+    }
+
+    const message = messageRow as { text?: string } | null;
     const { error } = await supabase
       .from('messages')
       .update({
@@ -32,6 +44,10 @@ export async function POST(
 
     if (error) {
       return jsonError(error.message, 500);
+    }
+
+    if (typeof message?.text === 'string') {
+      await rememberRejectedPhrase(supabase, message.text, auth.user.id);
     }
 
     return noStoreJson({

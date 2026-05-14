@@ -2,7 +2,6 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { basicFilterIntelligence } from '@/lib/filter';
 import { fetchPublicEvent } from '@/lib/public-api';
 import { requestJson } from '@/lib/request';
 import { PublicEventData } from '@/lib/types';
@@ -96,25 +95,13 @@ function ChatForm() {
       return;
     }
 
-    const filterResult = basicFilterIntelligence(message, maxChars);
-    if (!filterResult.ok) {
-      const reasons: Record<string, string> = {
-        blacklist: 'Pesan mengandung kata yang tidak diizinkan',
-        link: 'Link tidak diizinkan',
-        spam: 'Pesan terdeteksi sebagai spam',
-        length: `Panjang pesan harus 2-${maxChars} karakter`,
-      };
-      showToast('error', reasons[filterResult.reason || ''] || 'Pesan tidak valid');
-      return;
-    }
-
     setLoading(true);
     try {
       const data = await requestJson<{ message?: string; autoApproved?: boolean }>('/api/message', {
         method: 'POST',
         body: JSON.stringify({
           eventId,
-          text: filterResult.cleanedText,
+          text: message.trim(),
           senderName: senderName.trim() || null,
         }),
       });
@@ -212,7 +199,6 @@ function ChatForm() {
               placeholder="Ketik pesanmu di sini..."
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              maxLength={maxChars + 20}
               rows={2}
               id="message-input"
             />
@@ -224,7 +210,7 @@ function ChatForm() {
           <button
             type="submit"
             className="btn btn-primary chat-submit"
-            disabled={loading || cooldown > 0 || !message.trim() || charCount > maxChars}
+            disabled={loading || cooldown > 0 || !message.trim()}
             id="submit-button"
           >
             {loading ? (

@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { isUuid } from '@/lib/admin-auth';
 import { isE2EMockModeEnabled } from '@/lib/e2e-config';
 import { basicFilterIntelligence } from '@/lib/filter';
-import { isRememberedSafePhrase } from '@/lib/moderation-memory';
+import { getRememberedModerationDecision } from '@/lib/moderation-memory';
 import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 import { EventData } from '@/lib/types';
@@ -71,12 +71,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rememberedDecision = await getRememberedModerationDecision(supabase, text);
+    if (rememberedDecision === 'rejected') {
+      return noStoreJson(
+        { error: 'Pesan serupa sebelumnya telah ditolak moderator' },
+        { status: 400 },
+      );
+    }
+
     let filterResult = basicFilterIntelligence(text, eventData.max_chars || 100);
-    if (
-      filterResult.ok &&
-      filterResult.riskLevel === 'risky' &&
-      (await isRememberedSafePhrase(supabase, text))
-    ) {
+    if (filterResult.ok && filterResult.riskLevel === 'risky' && rememberedDecision === 'approved') {
       filterResult = {
         ...filterResult,
         riskLevel: 'safe',

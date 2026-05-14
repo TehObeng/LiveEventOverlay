@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { AdminBulkMessageAction } from '@/lib/types';
 import { requireAdminUser, isUuid, jsonError } from '@/lib/admin-auth';
-import { rememberApprovedSafePhrase } from '@/lib/moderation-memory';
+import { rememberApprovedSafePhrase, rememberRejectedPhrase } from '@/lib/moderation-memory';
 import { noStoreJson } from '@/lib/response';
 import { createServiceRoleSupabaseClient } from '@/lib/supabase-server';
 
@@ -35,8 +35,8 @@ export async function POST(
     }
 
     const supabase = createServiceRoleSupabaseClient();
-    const { data: rowsToApprove, error: readError } =
-      action === 'approve'
+    const { data: rowsToModerate, error: readError } =
+      action === 'approve' || action === 'reject'
         ? await supabase
             .from('messages')
             .select('id, text, risk_level')
@@ -77,10 +77,18 @@ export async function POST(
         return jsonError(error.message, 500);
       }
 
-      if (action === 'approve' && Array.isArray(rowsToApprove)) {
-        for (const row of rowsToApprove as Array<{ text?: string; risk_level?: string | null }>) {
+      if (action === 'approve' && Array.isArray(rowsToModerate)) {
+        for (const row of rowsToModerate as Array<{ text?: string; risk_level?: string | null }>) {
           if (row?.risk_level === 'risky' && typeof row.text === 'string') {
             await rememberApprovedSafePhrase(supabase, row.text, auth.user.id);
+          }
+        }
+      }
+
+      if (action === 'reject' && Array.isArray(rowsToModerate)) {
+        for (const row of rowsToModerate as Array<{ text?: string }>) {
+          if (typeof row?.text === 'string') {
+            await rememberRejectedPhrase(supabase, row.text, auth.user.id);
           }
         }
       }

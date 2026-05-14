@@ -10,6 +10,7 @@
     "lint": "eslint src tests playwright.config.ts next.config.ts",
     "type-check": "tsc --noEmit",
     "check:schema": "node scripts/check-supabase-schema.mjs",
+    "backfill:moderation": "node scripts/backfill-moderation-memory.mjs",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "test:polish": "playwright test --grep @polish",
